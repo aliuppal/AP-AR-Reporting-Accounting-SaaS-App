@@ -4,7 +4,8 @@ import resolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 import replace from '@rollup/plugin-replace';
 import terser from '@rollup/plugin-terser';
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateIcons } from './icons.mjs';
@@ -62,13 +63,37 @@ async function build() {
   return bytes;
 }
 
+/**
+ * Content-address every asset reference in the HTML shells. A cached bundle can then
+ * never outlive a deploy: new HTML always points at new URLs.
+ */
+function stampHtml(version) {
+  for (const file of ['app.html', 'index.html', 'landing.html']) {
+    const path = join(outDir, file);
+    let html = readFileSync(path, 'utf8');
+    html = html
+      .replace(/(href="\/(?:styles|motion|theme-verge)\.css)"/g, `$1?v=${version}"`)
+      .replace(/(href="\/fonts\/fonts\.css)"/g, `$1?v=${version}"`)
+      .replace(/(src="\/app\.js)"/g, `$1?v=${version}"`);
+    writeFileSync(path, html);
+  }
+  return version;
+}
+
 async function main() {
   mkdirSync(outDir, { recursive: true });
   copyStatic();
   generateIcons(outDir);
   const started = Date.now();
   const bytes = await build();
-  console.log(`[build] web/dist/app.js ${(bytes / 1024).toFixed(0)} kB in ${Date.now() - started} ms`);
+
+  const version = createHash('sha256')
+    .update(readFileSync(join(outDir, 'app.js')))
+    .digest('hex')
+    .slice(0, 10);
+  stampHtml(version);
+
+  console.log(`[build] web/dist/app.js ${(bytes / 1024).toFixed(0)} kB in ${Date.now() - started} ms · assets ?v=${version}`);
 
   if (watch) {
     const { watch: rollupWatch } = await import('rollup');

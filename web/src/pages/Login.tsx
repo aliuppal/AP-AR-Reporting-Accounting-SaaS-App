@@ -18,7 +18,7 @@ export function Login() {
     try {
       await login(email.trim(), password);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unable to sign in');
+      setError(err instanceof ApiError ? err.message : 'Unable to sign in — ' + (err as Error).message + '. If the page looks outdated, hard-refresh (Ctrl/Cmd+Shift+R).');
     } finally {
       setBusy(false);
     }
@@ -32,7 +32,7 @@ export function Login() {
     try {
       await login('test@ledgerly.app', 'test1234');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unable to sign in');
+      setError(err instanceof ApiError ? err.message : 'Unable to sign in — ' + (err as Error).message + '. If the page looks outdated, hard-refresh (Ctrl/Cmd+Shift+R).');
     } finally {
       setBusy(false);
     }
