@@ -32,11 +32,11 @@ export function createApp(db) {
   api.use('/contacts', contactsRouter(db));
   api.use('/invoices', documentRouter(db, {
     table: 'invoices', lineTable: 'invoice_lines', fk: 'invoice_id',
-    kind: 'invoice', contactType: 'customer', prefixKey: 'invoice_prefix',
+    kind: 'invoice', contactType: 'customer', prefixKey: 'invoice_prefix', stampColumn: 'sent_at',
   }));
   api.use('/bills', documentRouter(db, {
     table: 'bills', lineTable: 'bill_lines', fk: 'bill_id',
-    kind: 'bill', contactType: 'vendor', prefixKey: 'bill_prefix',
+    kind: 'bill', contactType: 'vendor', prefixKey: 'bill_prefix', stampColumn: 'approved_at',
   }));
   api.use('/payments', paymentsRouter(db));
   api.use('/reports', reportsRouter(db));

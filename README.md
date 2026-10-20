@@ -4,7 +4,7 @@ Accounts receivable, accounts payable and reporting for small finance teams — 
 the browser, installable as a mobile app, and wrapped for native iOS/Android with Capacitor.
 
 ![stack](https://img.shields.io/badge/server-Node%2024%20%2B%20Express%205-0f6f61)
-![db](https://img.shields.io/badge/storage-SQLite%20(node%3Asqlite)-0b1220)
+![db](https://img.shields.io/badge/storage-Postgres%20(Neon)-0b1220)
 ![client](https://img.shields.io/badge/client-React%2019%20%2B%20Rollup-0f6f61)
 
 ---
@@ -28,10 +28,15 @@ touches a balance.
 
 ## Quick start
 
+Ledgerly stores its ledger in **Postgres** (developed against Neon). Create `.env` from the template and
+paste your connection string:
+
 ```bash
 npm install
-npm run build      # bundles the React client into web/dist
-npm start          # API + static client on http://127.0.0.1:4100
+cp .env.example .env       # then set DATABASE_URL
+npm run reset              # migrate + seed the demo ledger (first run only)
+npm run build              # bundles the React client into web/dist
+npm start                  # API + static client on http://127.0.0.1:4100
 ```
 
 Open <http://127.0.0.1:4100> for the **landing page**, then **Open the app** (or go straight to
@@ -46,8 +51,9 @@ The login screen is prefilled with these details, and **Sign in with the test ac
 one click. `/` serves the landing page to visitors and the workspace to anyone already signed in; `/app`
 always boots the app. Exactly one user is seeded — create more with `POST /api/auth/register`.
 
-The database is created on first boot and seeded with ten months of a design studio's ledger
-(≈80 invoices, ≈65 bills, ≈100 payments) so every screen has realistic data.
+The schema is created on boot and seeded with ten months of a design studio's ledger
+(≈80 invoices, ≈65 bills, ≈100 payments) so every screen has realistic data. Migrations are idempotent
+`CREATE TABLE IF NOT EXISTS` statements in `server/src/db.js`; the seed is skipped once a user exists.
 
 ### Other commands
 
@@ -57,12 +63,17 @@ The database is created on first boot and seeded with ten months of a design stu
 | `npm run build` | Rollup + Babel build of `web/src` → `web/dist` |
 | `npm run watch` | Rebuild the client on change |
 | `npm run dev` | API with `--watch` plus the client watcher |
-| `npm test` | 13 domain + HTTP API tests (node:test, in-process) |
+| `npm test` | 14 domain + HTTP API tests against a dedicated `ledgerly_test` database |
 | `npm run smoke` | Boots the real bundle in jsdom against the running server and asserts the dashboard, invoices, reports and contacts screens render |
 | `npm run seed` | Seed an empty database (`-- --force` to reset) |
-| `npm run reset` | Delete and recreate the database with fresh demo data |
+| `npm run reset` | Truncate and reseed the schema with fresh demo data |
 | `npm run typecheck` | TypeScript check of the client (no emit) |
 | `npm run audit:motion` | Fails the build if any animation touches a layout/paint property |
+
+Environment variables: `DATABASE_URL` (**required** — Postgres connection string), `PORT` (default
+`4100`), `HOST` (`127.0.0.1`), `SESSION_SECRET` (optional; otherwise a key is generated in `data/`),
+`LEDGERLY_SEED=0` (skip seeding), `LEDGERLY_TEST_DB` (test database name, default `ledgerly_test`).
+`.env` is loaded automatically and is gitignored.
 
 Environment variables: `PORT` (default `4100`), `HOST` (`127.0.0.1`), `LEDGERLY_DB` (database path),
 `LEDGERLY_DATA_DIR`, `LEDGERLY_SEED=0` (skip seeding).
@@ -77,7 +88,7 @@ ledgerly/
 │  ├─ src/
 │  │  ├─ app.js            Express app: auth gate, API routers, static client, SPA fallback
 │  │  ├─ index.js          boot: migrate → seed → listen → graceful shutdown
-│  │  ├─ db.js             schema, transactions, numbering, document totals, payment allocation
+│  │  ├─ db.js             Postgres pool, schema, transactions, numbering, totals, allocations
 │  │  ├─ domain.js         cents math, date helpers, aging buckets, CSV
 │  │  ├─ auth.js           scrypt passwords + HMAC-signed session cookies
 │  │  ├─ http.js           ApiError, zod validation bridge, pagination, error handler
@@ -102,9 +113,12 @@ ledgerly/
 
 ### Why this stack
 
-- **`node:sqlite`** — real SQL transactions, foreign keys and constraints with zero native builds.
+- **Postgres (Neon-ready)** — real transactions, foreign keys, `ON CONFLICT` numbering and index-backed
+  aging queries, with SSL and a pooled connection out of the box.
+- **`pg` + no ORM** — every query is visible in the route or in `db.js`, so the accounting behaviour is
+  auditable; amounts are integer cents and `DATE` columns come back as `YYYY-MM-DD` strings.
 - **Rollup + Babel** — the client is JSX/TypeScript with no dev server dependency; the bundle is one
-  310 kB file (~90 kB gzipped) and the build runs anywhere Node runs.
+  311 kB file (~90 kB gzipped) and the build runs anywhere Node runs.
 - **Hand-written design system** — CSS variables + a handful of primitives instead of a framework, so
   the accounting tables, print layout and mobile breakpoints behave exactly as intended.
 - **No ORM** — the schema, numbering and allocation rules are visible in `db.js`, which makes the
@@ -213,11 +227,35 @@ GET    /api/dashboard       GET/PUT /api/settings
 
 ---
 
+## Database
+
+The ledger lives in Postgres (developed against Neon, `us-east-2`). Configuration is a single
+`DATABASE_URL` in `.env`; the app loads `.env` automatically at boot.
+
+- **Schema** — created by `db.migrate()` on every boot with idempotent `CREATE TABLE IF NOT EXISTS`
+  statements (see `SCHEMA` in `server/src/db.js`). No migration files to run.
+- **Seeding** — `npm run reset` truncates and rebuilds the demo ledger. It is written as a handful of
+  bulk `INSERT … SELECT * FROM unnest(...)` statements, so it takes seconds even over a high-latency link.
+- **Numbering** — `INSERT … ON CONFLICT DO UPDATE … RETURNING` on a `counters` row, so concurrent invoice
+  creation cannot produce duplicate numbers.
+- **Invariants** — foreign keys on `allocations`, `CHECK` constraints for statuses and direction, and a
+  `CHECK ((invoice_id IS NOT NULL) <> (bill_id IS NOT NULL))` guard so an allocation points at exactly one document.
+- **Types** — money is `integer` cents, dates are `date` (parsed back as `YYYY-MM-DD` strings), timestamps
+  are `timestamptz` returned as ISO strings.
+- **Tests** — `npm test` needs `DATABASE_URL`; it creates (once) a separate `ledgerly_test` database and
+  truncates it per run, so it never touches your ledger.
+
+Because the database is remote, page loads here run 0.6–2 s depending on round-trip time. The pool is
+pre-warmed at boot and list endpoints batch their reads, so a page costs a handful of queries rather
+than one per row.
+
+---
+
 ## Tests
 
 ```
 $ npm test
-# tests 13  pass 13  fail 0
+# tests 14  pass 14  fail 0        (≈70 s over a remote Neon branch)
 
 $ npm run smoke
 Smoke testing http://127.0.0.1:4100
@@ -226,13 +264,18 @@ Smoke testing http://127.0.0.1:4100
   ok   dashboard KPIs render
   ok   no fatal render errors
   ok   invoices route loads
+  ok   invoice rows arrive from the API
   ok   reports route loads
   ok   contacts route loads
+  ok   landing page serves
+  ok   landing reveals without IntersectionObserver
+  ok   landing chart bars carry real heights
+  ok   freeze harness pins animations at ?t=
 All render smoke checks passed.
 ```
 
 The API tests cover the full invoice lifecycle (draft → send → partial payment → aging), bill payments,
-over-payment rejection, report series arithmetic, CSV export and validation errors.
+over-payment rejection, report series arithmetic, CSV export, page routing and validation errors.
 
 ---
 
@@ -244,3 +287,5 @@ over-payment rejection, report series arithmetic, CSV export and validation erro
   these are the natural next layer on top of `allocations` and `journal`-ready documents.
 - Session cookies are `HttpOnly`/`SameSite=Lax` but not `Secure` (local HTTP); enable TLS in production
   and flip that flag.
+- The Neon role password used during development was shared in screenshots — rotate it in
+  Neon → Roles before this goes anywhere public, then update `.env`.

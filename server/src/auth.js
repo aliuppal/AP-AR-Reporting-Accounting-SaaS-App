@@ -1,13 +1,15 @@
 import { randomBytes, scryptSync, timingSafeEqual, createHmac } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { DATA_DIR } from './db.js';
+import { ROOT } from './db.js';
 
+const DATA_DIR = process.env.LEDGERLY_DATA_DIR ?? join(ROOT, 'data');
 const SECRET_FILE = join(DATA_DIR, 'session.key');
 export const SESSION_COOKIE = 'ledgerly_session';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
 
 function secret() {
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
   mkdirSync(DATA_DIR, { recursive: true });
   if (!existsSync(SECRET_FILE)) writeFileSync(SECRET_FILE, randomBytes(48).toString('hex'), { mode: 0o600 });
   return readFileSync(SECRET_FILE, 'utf8').trim();
@@ -59,11 +61,11 @@ export function parseCookies(header = '') {
 }
 
 export function authRequired(db) {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     const token = parseCookies(req.headers.cookie || '')[SESSION_COOKIE];
     const session = readSession(token);
     if (!session) return res.status(401).json({ error: 'Authentication required' });
-    const user = db.prepare('SELECT id, email, name, role FROM users WHERE id = ?').get(session.uid);
+    const user = await db.one('SELECT id, email, name, role FROM users WHERE id = $1', [session.uid]);
     if (!user) return res.status(401).json({ error: 'Authentication required' });
     req.user = user;
     next();

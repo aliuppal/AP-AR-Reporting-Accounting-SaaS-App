@@ -42,25 +42,29 @@ export function serializeSettings(row) {
 }
 
 export function settingsRouter(db) {
-  const r = Router();
+  const router = Router();
 
-  r.get('/', (req, res) => {
-    res.json(serializeSettings(db.prepare('SELECT * FROM settings WHERE id = 1').get()));
+  router.get('/', async (req, res) => {
+    res.json(serializeSettings(await db.one('SELECT * FROM settings WHERE id = 1')));
   });
 
-  r.put('/', (req, res) => {
+  router.put('/', async (req, res) => {
     const body = parse(settingsSchema, req.body);
-    db.prepare(
-      `UPDATE settings SET company_name = ?, legal_name = ?, currency = ?, locale = ?, fiscal_year_start_month = ?,
-       default_terms_days = ?, default_tax_rate = ?, invoice_prefix = ?, bill_prefix = ?, payment_prefix = ?,
-       revenue_categories = ?, expense_categories = ?, payment_methods = ?, updated_at = datetime('now') WHERE id = 1`
-    ).run(
-      body.companyName, body.legalName, body.currency.toUpperCase(), body.locale, body.fiscalYearStartMonth,
-      body.defaultTermsDays, body.defaultTaxRate, body.invoicePrefix, body.billPrefix, body.paymentPrefix,
-      JSON.stringify(body.revenueCategories), JSON.stringify(body.expenseCategories), JSON.stringify(body.paymentMethods),
+    await db.query(
+      `UPDATE settings SET company_name = $1, legal_name = $2, currency = $3, locale = $4,
+              fiscal_year_start_month = $5, default_terms_days = $6, default_tax_rate = $7,
+              invoice_prefix = $8, bill_prefix = $9, payment_prefix = $10,
+              revenue_categories = $11, expense_categories = $12, payment_methods = $13,
+              updated_at = now()
+        WHERE id = 1`,
+      [
+        body.companyName, body.legalName, body.currency.toUpperCase(), body.locale, body.fiscalYearStartMonth,
+        body.defaultTermsDays, body.defaultTaxRate, body.invoicePrefix, body.billPrefix, body.paymentPrefix,
+        JSON.stringify(body.revenueCategories), JSON.stringify(body.expenseCategories), JSON.stringify(body.paymentMethods),
+      ],
     );
-    res.json(serializeSettings(db.prepare('SELECT * FROM settings WHERE id = 1').get()));
+    res.json(serializeSettings(await db.one('SELECT * FROM settings WHERE id = 1')));
   });
 
-  return r;
+  return router;
 }

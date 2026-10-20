@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { nextNumber, recomputeDocumentTotals, tx } from '../db.js';
 import { addDays, diffDays, isOverdue, today } from '../domain.js';
 import { badRequest, conflict, notFound, pagination, parse } from '../http.js';
 
@@ -29,18 +28,12 @@ const docSchema = z.object({
  */
 export function documentRouter(db, opts) {
   const {
-    table, lineTable, fk, kind, contactType, prefixKey, sendStatus = 'open',
+    table, lineTable, fk, kind, contactType, prefixKey, stampColumn,
   } = opts;
-  const r = Router();
 
-  const serialize = (row) => {
-    const lines = db.prepare(`SELECT * FROM ${lineTable} WHERE ${fk} = ? ORDER BY position, id`).all(row.id);
-    const contact = db.prepare('SELECT id, name, company, email FROM contacts WHERE id = ?').get(row.contact_id);
-    const allocations = db.prepare(
-      `SELECT a.*, p.number AS payment_number, p.date AS payment_date, p.method
-         FROM allocations a JOIN payments p ON p.id = a.payment_id
-        WHERE a.${fk} = ? ORDER BY p.date`
-    ).all(row.id);
+  const router = Router();
+
+  const serialize = (row, lines, contact, payments = []) => {
     const doc = {
       id: row.id,
       number: row.number,
@@ -70,72 +63,114 @@ export function documentRouter(db, opts) {
         taxRate: l.tax_rate,
         amountCents: l.amount_cents,
       })),
-      payments: allocations.map((a) => ({
+      payments,
+    };
+    doc.isOverdue = isOverdue(doc);
+    return doc;
+  };
+
+  /** Batch-load lines and contacts for a page of documents (avoids N+1 round trips). */
+  const attachAll = async (rows) => {
+    if (rows.length === 0) return [];
+    const ids = rows.map((r) => r.id);
+    const contactIds = [...new Set(rows.map((r) => r.contact_id))];
+    const [lines, contacts] = await Promise.all([
+      db.many(`SELECT * FROM ${lineTable} WHERE ${fk} = ANY($1::int[]) ORDER BY position, id`, [ids]),
+      db.many('SELECT id, name, company, email FROM contacts WHERE id = ANY($1::int[])', [contactIds]),
+    ]);
+    const lineMap = new Map();
+    for (const line of lines) {
+      const list = lineMap.get(line[fk]) ?? [];
+      list.push(line);
+      lineMap.set(line[fk], list);
+    }
+    const contactMap = new Map(contacts.map((c) => [c.id, c]));
+    return rows.map((row) => serialize(row, lineMap.get(row.id) ?? [], contactMap.get(row.contact_id) ?? null));
+  };
+
+  const loadDetail = async (id) => {
+    const row = await db.one(`SELECT * FROM ${table} WHERE id = $1`, [id]);
+    if (!row) return null;
+    const [lines, contact, payments] = await Promise.all([
+      db.many(`SELECT * FROM ${lineTable} WHERE ${fk} = $1 ORDER BY position, id`, [id]),
+      db.one('SELECT id, name, company, email FROM contacts WHERE id = $1', [row.contact_id]),
+      db.many(
+        `SELECT a.*, p.number AS payment_number, p.date AS payment_date, p.method
+           FROM allocations a JOIN payments p ON p.id = a.payment_id
+          WHERE a.${fk} = $1 ORDER BY p.date`,
+        [id],
+      ),
+    ]);
+    return serialize(
+      row,
+      lines,
+      contact,
+      payments.map((a) => ({
         paymentId: a.payment_id,
         number: a.payment_number,
         date: a.payment_date,
         method: a.method,
         amountCents: a.amount_cents,
       })),
-    };
-    doc.isOverdue = isOverdue(doc);
-    return doc;
-  };
-
-  const find = (id) => db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id);
-
-  const writeLines = (id, lines) => {
-    db.prepare(`DELETE FROM ${lineTable} WHERE ${fk} = ?`).run(id);
-    const insert = db.prepare(
-      `INSERT INTO ${lineTable} (${fk}, description, category, quantity, unit_price_cents, tax_rate, amount_cents, position)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     );
-    lines.forEach((l, i) => {
-      const amount = Math.round(l.quantity * l.unitPriceCents);
-      insert.run(id, l.description, l.category || '', l.quantity, l.unitPriceCents, l.taxRate || 0, amount, i);
-    });
   };
 
-  r.get('/', (req, res) => {
+  const writeLines = async (client, id, lines) => {
+    await client.query(`DELETE FROM ${lineTable} WHERE ${fk} = $1`, [id]);
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      const amount = Math.round(line.quantity * line.unitPriceCents);
+      await client.query(
+        `INSERT INTO ${lineTable} (${fk}, description, category, quantity, unit_price_cents, tax_rate, amount_cents, position)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [id, line.description, line.category || '', line.quantity, line.unitPriceCents, line.taxRate || 0, amount, i],
+      );
+    }
+  };
+
+  router.get('/', async (req, res) => {
     const { limit, offset } = pagination(req.query);
     const clauses = [];
     const params = [];
     const status = String(req.query.status || 'all');
     if (status === 'overdue') {
-      clauses.push(`status IN ('open','partial') AND due_date < date('now')`);
+      clauses.push(`status IN ('open','partial') AND due_date < CURRENT_DATE`);
     } else if (status !== 'all') {
-      clauses.push('status = ?');
       params.push(status);
+      clauses.push(`status = $${params.length}`);
     }
     if (req.query.contactId) {
-      clauses.push('contact_id = ?');
       params.push(Number(req.query.contactId));
+      clauses.push(`contact_id = $${params.length}`);
     }
     if (req.query.from) {
-      clauses.push('issue_date >= ?');
-      params.push(req.query.from);
+      params.push(String(req.query.from));
+      clauses.push(`issue_date >= $${params.length}`);
     }
     if (req.query.to) {
-      clauses.push('issue_date <= ?');
-      params.push(req.query.to);
+      params.push(String(req.query.to));
+      clauses.push(`issue_date <= $${params.length}`);
     }
     if (req.query.q) {
-      const like = `%${String(req.query.q).trim()}%`;
-      clauses.push(`(number LIKE ? OR reference LIKE ? OR contact_id IN (SELECT id FROM contacts WHERE name LIKE ?))`);
-      params.push(like, like, like);
+      params.push(`%${String(req.query.q).trim()}%`);
+      const i = params.length;
+      clauses.push(`(number ILIKE $${i} OR reference ILIKE $${i} OR contact_id IN (SELECT id FROM contacts WHERE name ILIKE $${i}))`);
     }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-    const total = db.prepare(`SELECT COUNT(*) AS c FROM ${table} ${where}`).get(...params).c;
-    const rows = db.prepare(
-      `SELECT * FROM ${table} ${where} ORDER BY issue_date DESC, id DESC LIMIT ? OFFSET ?`
-    ).all(...params, limit, offset);
-    const aggregate = db.prepare(
-      `SELECT COALESCE(SUM(total_cents - paid_cents),0) AS open,
-              COALESCE(SUM(CASE WHEN due_date < date('now') THEN total_cents - paid_cents ELSE 0 END),0) AS overdue
-         FROM ${table} WHERE status IN ('open','partial')`
-    ).get();
+
+    const total = (await db.one(`SELECT COUNT(*)::int AS c FROM ${table} ${where}`, params)).c;
+    const rows = await db.many(
+      `SELECT * FROM ${table} ${where} ORDER BY issue_date DESC, id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset],
+    );
+    const aggregate = await db.one(
+      `SELECT COALESCE(SUM(total_cents - paid_cents), 0)::int AS open,
+              COALESCE(SUM(CASE WHEN due_date < CURRENT_DATE THEN total_cents - paid_cents ELSE 0 END), 0)::int AS overdue
+         FROM ${table} WHERE status IN ('open','partial')`,
+    );
+
     res.json({
-      items: rows.map(serialize),
+      items: await attachAll(rows),
       total,
       limit,
       offset,
@@ -144,92 +179,97 @@ export function documentRouter(db, opts) {
     });
   });
 
-  r.get('/:id', (req, res) => {
-    const row = find(Number(req.params.id));
-    if (!row) throw notFound('Document not found');
-    res.json(serialize(row));
+  router.get('/:id', async (req, res) => {
+    const doc = await loadDetail(Number(req.params.id));
+    if (!doc) throw notFound('Document not found');
+    res.json(doc);
   });
 
-  r.post('/', (req, res) => {
+  router.post('/', async (req, res) => {
     const body = parse(docSchema, req.body);
-    const contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(body.contactId);
+    const contact = await db.one('SELECT * FROM contacts WHERE id = $1', [body.contactId]);
     if (!contact) throw badRequest('Contact not found');
-    if (contact.type !== contactType && contact.type !== 'both') {
-      throw badRequest(`Contact is not a ${contactType}`);
-    }
+    if (contact.type !== contactType && contact.type !== 'both') throw badRequest(`Contact is not a ${contactType}`);
+
     const dueDate = body.dueDate ?? addDays(body.issueDate, contact.terms_days);
     if (dueDate < body.issueDate) throw badRequest('Due date must be on or after the issue date');
 
-    const doc = tx(db, () => {
-      const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get();
-      const number = nextNumber(db, kind, body.issueDate, settings[prefixKey]);
-      const inserted = db.prepare(
-        `INSERT INTO ${table} (number, contact_id, issue_date, due_date, status, currency, discount_cents, notes, reference, ${kind === 'invoice' ? 'sent_at' : 'approved_at'})
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        number, body.contactId, body.issueDate, dueDate, body.status, settings.currency,
-        body.discountCents, body.notes, body.reference, body.status === sendStatus ? new Date().toISOString() : null,
+    const id = await db.tx(async (client) => {
+      const settings = (await client.query('SELECT * FROM settings WHERE id = 1')).rows[0];
+      const number = await db.nextNumber(client, kind, body.issueDate, settings[prefixKey]);
+      const inserted = await client.query(
+        `INSERT INTO ${table} (number, contact_id, issue_date, due_date, status, currency, discount_cents, notes, reference, ${stampColumn})
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+        [
+          number, body.contactId, body.issueDate, dueDate, body.status, settings.currency,
+          body.discountCents, body.notes, body.reference, body.status === 'open' ? new Date().toISOString() : null,
+        ],
       );
-      const id = Number(inserted.lastInsertRowid);
-      writeLines(id, body.lines);
-      recomputeDocumentTotals(db, table, id);
-      return id;
+      const newId = inserted.rows[0].id;
+      await writeLines(client, newId, body.lines);
+      await db.recomputeDocumentTotals(client, table, newId);
+      return newId;
     });
-    res.status(201).json(serialize(find(doc)));
+
+    res.status(201).json(await loadDetail(id));
   });
 
-  r.put('/:id', (req, res) => {
+  router.put('/:id', async (req, res) => {
     const id = Number(req.params.id);
-    const existing = find(id);
+    const existing = await db.one(`SELECT * FROM ${table} WHERE id = $1`, [id]);
     if (!existing) throw notFound('Document not found');
     if (existing.status === 'void') throw conflict('Voided documents cannot be edited');
+
     const body = parse(docSchema, req.body);
     const dueDate = body.dueDate ?? addDays(body.issueDate, 30);
     if (dueDate < body.issueDate) throw badRequest('Due date must be on or after the issue date');
 
-    tx(db, () => {
+    await db.tx(async (client) => {
       const keepStatus = ['paid', 'partial'].includes(existing.status) ? existing.status : body.status;
-      db.prepare(
-        `UPDATE ${table} SET contact_id = ?, issue_date = ?, due_date = ?, status = ?, discount_cents = ?,
-         notes = ?, reference = ?, updated_at = datetime('now') WHERE id = ?`
-      ).run(body.contactId, body.issueDate, dueDate, keepStatus, body.discountCents, body.notes, body.reference, id);
-      writeLines(id, body.lines);
-      const totals = recomputeDocumentTotals(db, table, id);
+      await client.query(
+        `UPDATE ${table} SET contact_id = $1, issue_date = $2, due_date = $3, status = $4,
+                discount_cents = $5, notes = $6, reference = $7, updated_at = now()
+          WHERE id = $8`,
+        [body.contactId, body.issueDate, dueDate, keepStatus, body.discountCents, body.notes, body.reference, id],
+      );
+      await writeLines(client, id, body.lines);
+      const totals = await db.recomputeDocumentTotals(client, table, id);
       if (totals.paid > totals.total) throw badRequest('Total is lower than payments already applied to this document');
     });
-    res.json(serialize(find(id)));
+
+    res.json(await loadDetail(id));
   });
 
-  r.post('/:id/send', (req, res) => {
+  router.post('/:id/send', async (req, res) => {
     const id = Number(req.params.id);
-    const existing = find(id);
+    const existing = await db.one(`SELECT * FROM ${table} WHERE id = $1`, [id]);
     if (!existing) throw notFound('Document not found');
     if (existing.status !== 'draft') throw conflict('Only drafts can be sent');
-    db.prepare(`UPDATE ${table} SET status = 'open', ${kind === 'invoice' ? 'sent_at' : 'approved_at'} = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(id);
-    res.json(serialize(find(id)));
+    await db.query(
+      `UPDATE ${table} SET status = 'open', ${stampColumn} = now(), updated_at = now() WHERE id = $1`,
+      [id],
+    );
+    res.json(await loadDetail(id));
   });
 
-  r.post('/:id/void', (req, res) => {
+  router.post('/:id/void', async (req, res) => {
     const id = Number(req.params.id);
-    const existing = find(id);
+    const existing = await db.one(`SELECT * FROM ${table} WHERE id = $1`, [id]);
     if (!existing) throw notFound('Document not found');
     if (existing.paid_cents > 0) throw conflict('Remove applied payments before voiding this document');
-    db.prepare(`UPDATE ${table} SET status = 'void', updated_at = datetime('now') WHERE id = ?`).run(id);
-    res.json(serialize(find(id)));
+    await db.query(`UPDATE ${table} SET status = 'void', updated_at = now() WHERE id = $1`, [id]);
+    res.json(await loadDetail(id));
   });
 
-  r.delete('/:id', (req, res) => {
+  router.delete('/:id', async (req, res) => {
     const id = Number(req.params.id);
-    const existing = find(id);
+    const existing = await db.one(`SELECT * FROM ${table} WHERE id = $1`, [id]);
     if (!existing) throw notFound('Document not found');
     if (existing.paid_cents > 0) throw conflict('Documents with payments cannot be deleted');
     if (!['draft', 'void'].includes(existing.status)) throw conflict('Only drafts or voided documents can be deleted');
-    tx(db, () => {
-      db.prepare(`DELETE FROM ${lineTable} WHERE ${fk} = ?`).run(id);
-      db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(id);
-    });
+    await db.query(`DELETE FROM ${table} WHERE id = $1`, [id]);
     res.status(204).end();
   });
 
-  return r;
+  return router;
 }

@@ -1,14 +1,11 @@
-import { readdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { DATA_DIR, openDb } from '../server/src/db.js';
+import { createDb } from '../server/src/db.js';
 import { seed } from '../server/src/seed.js';
 
-for (const file of readdirSync(DATA_DIR).filter((f) => f.startsWith('ledgerly.db'))) {
-  rmSync(join(DATA_DIR, file), { force: true });
-  console.log(`[reset] removed ${file}`);
-}
+try { process.loadEnvFile?.('.env'); } catch { /* optional */ }
 
-const db = openDb();
-seed(db);
-console.log('[reset] database recreated with demo data — test@ledgerly.app / test1234');
-db.close();
+const db = createDb();
+await db.migrate();
+const result = await seed(db, { force: true });
+console.log(`[reset] database reseeded — ${result.invoices} invoices, ${result.bills} bills, ${result.payments} payments`);
+console.log('[reset] sign in with test@ledgerly.app / test1234');
+await db.close();

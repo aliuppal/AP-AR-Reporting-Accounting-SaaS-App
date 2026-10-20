@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { ROOT, openDb } from '../src/db.js';
+import { createDb, ROOT } from '../src/db.js';
 import { seed } from '../src/seed.js';
 import { createApp } from '../src/app.js';
 
-const DB_PATH = join(ROOT, 'data', `test-api-${process.pid}.db`);
+const TEST_DB = process.env.LEDGERLY_TEST_DB ?? 'ledgerly_test';
 let db;
 let server;
 let base;
@@ -30,10 +29,31 @@ async function api(path, { method = 'GET', body, raw = false } = {}) {
   return { status: res.status, data };
 }
 
+/** Point the connection string at the dedicated test database, creating it once. */
+async function testDatabaseUrl() {
+  try { process.loadEnvFile?.('.env'); } catch { /* optional */ }
+  const adminUrl = process.env.DATABASE_URL;
+  if (!adminUrl) throw new Error('DATABASE_URL is required to run the API tests');
+
+  const admin = createDb({ connectionString: adminUrl, max: 1 });
+  try {
+    const exists = await admin.one('SELECT 1 AS ok FROM pg_database WHERE datname = $1', [TEST_DB]);
+    if (!exists) await admin.query(`CREATE DATABASE ${TEST_DB}`);
+  } finally {
+    await admin.close();
+  }
+
+  const url = new URL(adminUrl);
+  url.pathname = `/${TEST_DB}`;
+  return url.toString();
+}
+
 before(async () => {
-  rmSync(DB_PATH, { force: true });
-  db = openDb(DB_PATH);
-  seed(db, { force: true });
+  const connectionString = await testDatabaseUrl();
+  db = createDb({ connectionString, max: 4 });
+  await db.migrate();
+  await seed(db, { force: true });
+
   const app = createApp(db);
   await new Promise((resolve) => {
     server = app.listen(0, '127.0.0.1', resolve);
@@ -43,8 +63,7 @@ before(async () => {
 
 after(async () => {
   await new Promise((resolve) => server.close(resolve));
-  db.close();
-  rmSync(DB_PATH, { force: true });
+  await db.close();
 });
 
 test('health check is public, data routes are not', async () => {

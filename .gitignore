@@ -1,9 +1,8 @@
 node_modules/
 .npm-cache/
-data/*.db
-data/*.db-shm
-data/*.db-wal
+data/
 dist/
+.env
 .DS_Store
 *.log
 !.gitkeep

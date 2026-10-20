@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { allocatePayment, nextNumber, recomputeDocumentTotals, tx } from '../db.js';
 import { badRequest, notFound, pagination, parse } from '../http.js';
 
 const allocationSchema = z.object({
@@ -20,16 +19,8 @@ const paymentSchema = z.object({
   allocations: z.array(allocationSchema).optional(),
 });
 
-function serialize(db, row) {
-  const allocations = db.prepare(
-    `SELECT a.*, i.number AS invoice_number, b.number AS bill_number
-       FROM allocations a
-       LEFT JOIN invoices i ON i.id = a.invoice_id
-       LEFT JOIN bills b ON b.id = a.bill_id
-      WHERE a.payment_id = ?`
-  ).all(row.id);
-  const contact = db.prepare('SELECT id, name, company FROM contacts WHERE id = ?').get(row.contact_id);
-  const allocated = allocations.reduce((s, a) => s + a.amount_cents, 0);
+function shape(row, allocations, contact) {
+  const allocated = allocations.reduce((sum, a) => sum + a.amount_cents, 0);
   return {
     id: row.id,
     number: row.number,
@@ -55,117 +46,179 @@ function serialize(db, row) {
 }
 
 export function paymentsRouter(db) {
-  const r = Router();
+  const router = Router();
 
-  r.get('/', (req, res) => {
+  router.get('/', async (req, res) => {
     const { limit, offset } = pagination(req.query);
     const clauses = [];
     const params = [];
     if (req.query.direction && req.query.direction !== 'all') {
-      clauses.push('direction = ?');
-      params.push(req.query.direction);
+      params.push(String(req.query.direction));
+      clauses.push(`direction = $${params.length}`);
     }
     if (req.query.contactId) {
-      clauses.push('contact_id = ?');
       params.push(Number(req.query.contactId));
+      clauses.push(`contact_id = $${params.length}`);
     }
     if (req.query.from) {
-      clauses.push('date >= ?');
       params.push(String(req.query.from));
+      clauses.push(`date >= $${params.length}`);
     }
     if (req.query.to) {
-      clauses.push('date <= ?');
       params.push(String(req.query.to));
+      clauses.push(`date <= $${params.length}`);
     }
     if (req.query.q) {
-      const like = `%${String(req.query.q).trim()}%`;
-      clauses.push('(number LIKE ? OR reference LIKE ? OR contact_id IN (SELECT id FROM contacts WHERE name LIKE ?))');
-      params.push(like, like, like);
+      params.push(`%${String(req.query.q).trim()}%`);
+      const i = params.length;
+      clauses.push(`(number ILIKE $${i} OR reference ILIKE $${i} OR contact_id IN (SELECT id FROM contacts WHERE name ILIKE $${i}))`);
     }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-    const total = db.prepare(`SELECT COUNT(*) AS c FROM payments ${where}`).get(...params).c;
-    const rows = db.prepare(`SELECT * FROM payments ${where} ORDER BY date DESC, id DESC LIMIT ? OFFSET ?`)
-      .all(...params, limit, offset);
-    const totals = db.prepare(
-      `SELECT COALESCE(SUM(CASE WHEN direction = 'in' THEN amount_cents ELSE 0 END),0) AS inflow,
-              COALESCE(SUM(CASE WHEN direction = 'out' THEN amount_cents ELSE 0 END),0) AS outflow
-         FROM payments ${where}`
-    ).get(...params);
-    res.json({ items: rows.map((row) => serialize(db, row)), total, limit, offset, inflowCents: totals.inflow, outflowCents: totals.outflow });
+
+    const total = (await db.one(`SELECT COUNT(*)::int AS c FROM payments ${where}`, params)).c;
+    const rows = await db.many(
+      `SELECT * FROM payments ${where} ORDER BY date DESC, id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset],
+    );
+    const totals = await db.one(
+      `SELECT COALESCE(SUM(CASE WHEN direction = 'in' THEN amount_cents ELSE 0 END), 0)::int AS inflow,
+              COALESCE(SUM(CASE WHEN direction = 'out' THEN amount_cents ELSE 0 END), 0)::int AS outflow
+         FROM payments ${where}`,
+      params,
+    );
+
+    // Batch allocations and contacts for the page (2 queries instead of 2N).
+    const ids = rows.map((row) => row.id);
+    const contactIds = [...new Set(rows.map((row) => row.contact_id))];
+    const [allocations, contacts] = await Promise.all([
+      ids.length
+        ? db.many(
+          `SELECT a.*, i.number AS invoice_number, b.number AS bill_number
+             FROM allocations a
+             LEFT JOIN invoices i ON i.id = a.invoice_id
+             LEFT JOIN bills b ON b.id = a.bill_id
+            WHERE a.payment_id = ANY($1::int[])`,
+          [ids],
+        )
+        : Promise.resolve([]),
+      contactIds.length
+        ? db.many('SELECT id, name, company FROM contacts WHERE id = ANY($1::int[])', [contactIds])
+        : Promise.resolve([]),
+    ]);
+
+    const allocMap = new Map();
+    for (const allocation of allocations) {
+      const list = allocMap.get(allocation.payment_id) ?? [];
+      list.push(allocation);
+      allocMap.set(allocation.payment_id, list);
+    }
+    const contactMap = new Map(contacts.map((c) => [c.id, c]));
+
+    const items = rows.map((row) => shape(row, allocMap.get(row.id) ?? [], contactMap.get(row.contact_id) ?? null));
+    res.json({ items, total, limit, offset, inflowCents: totals.inflow, outflowCents: totals.outflow });
   });
 
-  r.get('/:id', (req, res) => {
-    const row = db.prepare('SELECT * FROM payments WHERE id = ?').get(Number(req.params.id));
+  router.get('/:id', async (req, res) => {
+    const row = await db.one('SELECT * FROM payments WHERE id = $1', [Number(req.params.id)]);
     if (!row) throw notFound('Payment not found');
-    res.json(serialize(db, row));
+    const [allocations, contact] = await Promise.all([
+      db.many(
+        `SELECT a.*, i.number AS invoice_number, b.number AS bill_number
+           FROM allocations a
+           LEFT JOIN invoices i ON i.id = a.invoice_id
+           LEFT JOIN bills b ON b.id = a.bill_id
+          WHERE a.payment_id = $1`,
+        [row.id],
+      ),
+      db.one('SELECT id, name, company FROM contacts WHERE id = $1', [row.contact_id]),
+    ]);
+    res.json(shape(row, allocations, contact));
   });
 
-  r.post('/', (req, res) => {
+  router.post('/', async (req, res) => {
     const body = parse(paymentSchema, req.body);
-    const contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(body.contactId);
+    const contact = await db.one('SELECT * FROM contacts WHERE id = $1', [body.contactId]);
     if (!contact) throw badRequest('Contact not found');
 
-    const id = tx(db, () => {
-      const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get();
-      const number = nextNumber(db, 'payment', body.date, settings.payment_prefix);
-      const inserted = db.prepare(
+    const id = await db.tx(async (client) => {
+      const settings = (await client.query('SELECT * FROM settings WHERE id = 1')).rows[0];
+      const number = await db.nextNumber(client, 'payment', body.date, settings.payment_prefix);
+      const inserted = await client.query(
         `INSERT INTO payments (number, direction, contact_id, date, amount_cents, method, reference, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(number, body.direction, body.contactId, body.date, body.amountCents, body.method, body.reference, body.notes);
-      const paymentId = Number(inserted.lastInsertRowid);
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+        [number, body.direction, body.contactId, body.date, body.amountCents, body.method, body.reference, body.notes],
+      );
+      const paymentId = inserted.rows[0].id;
 
-      if (body.allocations?.length) {
-        try {
-          allocatePayment(db, paymentId, body.allocations);
-        } catch (err) {
-          throw badRequest(err.message);
+      try {
+        if (body.allocations?.length) {
+          await db.allocatePayment(client, paymentId, body.allocations);
+        } else {
+          // Auto-apply oldest open documents first, up to the payment amount.
+          const table = body.direction === 'in' ? 'invoices' : 'bills';
+          const docs = (await client.query(
+            `SELECT * FROM ${table}
+              WHERE contact_id = $1 AND status IN ('open','partial')
+              ORDER BY due_date, id`,
+            [body.contactId],
+          )).rows;
+          let remaining = body.amountCents;
+          for (const doc of docs) {
+            if (remaining <= 0) break;
+            const balance = doc.total_cents - doc.paid_cents;
+            if (balance <= 0) continue;
+            const amount = Math.min(balance, remaining);
+            await client.query(
+              `INSERT INTO allocations (payment_id, ${body.direction === 'in' ? 'invoice_id' : 'bill_id'}, amount_cents)
+               VALUES ($1,$2,$3)`,
+              [paymentId, doc.id, amount],
+            );
+            await db.recomputeDocumentTotals(client, table, doc.id);
+            remaining -= amount;
+          }
         }
-      } else {
-        // Auto-apply oldest open documents first, up to the payment amount.
-        const table = body.direction === 'in' ? 'invoices' : 'bills';
-        const docs = db.prepare(
-          `SELECT * FROM ${table} WHERE contact_id = ? AND status IN ('open','partial')
-            ORDER BY due_date, id`
-        ).all(body.contactId);
-        let remaining = body.amountCents;
-        for (const doc of docs) {
-          if (remaining <= 0) break;
-          const balance = doc.total_cents - doc.paid_cents;
-          if (balance <= 0) continue;
-          const amount = Math.min(balance, remaining);
-          const key = body.direction === 'in' ? 'invoice' : 'bill';
-          db.prepare(`INSERT INTO allocations (payment_id, ${body.direction === 'in' ? 'invoice_id' : 'bill_id'}, amount_cents) VALUES (?, ?, ?)`)
-            .run(paymentId, doc.id, amount);
-          recomputeDocumentTotals(db, table, doc.id);
-          remaining -= amount;
-        }
-        if (remaining === body.amountCents && body.amountCents > 0) {
-          // Nothing to apply to: keep the payment as unapplied cash (valid in accounting).
-        }
+      } catch (err) {
+        throw badRequest(err.message);
       }
-      const sum = db.prepare('SELECT COALESCE(SUM(amount_cents),0) AS s FROM allocations WHERE payment_id = ?').get(paymentId).s;
+
+      const sum = (await client.query(
+        'SELECT COALESCE(SUM(amount_cents), 0)::int AS s FROM allocations WHERE payment_id = $1', [paymentId],
+      )).rows[0].s;
       if (sum > body.amountCents) throw badRequest('Allocations exceed the payment amount');
       return paymentId;
     });
 
-    res.status(201).json(serialize(db, db.prepare('SELECT * FROM payments WHERE id = ?').get(id)));
+    const row = await db.one('SELECT * FROM payments WHERE id = $1', [id]);
+    const [paymentAllocations, paymentContact] = await Promise.all([
+      db.many(
+        `SELECT a.*, i.number AS invoice_number, b.number AS bill_number
+           FROM allocations a
+           LEFT JOIN invoices i ON i.id = a.invoice_id
+           LEFT JOIN bills b ON b.id = a.bill_id
+          WHERE a.payment_id = $1`,
+        [id],
+      ),
+      db.one('SELECT id, name, company FROM contacts WHERE id = $1', [row.contact_id]),
+    ]);
+    res.status(201).json(shape(row, paymentAllocations, paymentContact));
   });
 
-  r.delete('/:id', (req, res) => {
+  router.delete('/:id', async (req, res) => {
     const id = Number(req.params.id);
-    const row = db.prepare('SELECT * FROM payments WHERE id = ?').get(id);
+    const row = await db.one('SELECT * FROM payments WHERE id = $1', [id]);
     if (!row) throw notFound('Payment not found');
-    tx(db, () => {
-      const allocs = db.prepare('SELECT * FROM allocations WHERE payment_id = ?').all(id);
-      db.prepare('DELETE FROM allocations WHERE payment_id = ?').run(id);
-      for (const a of allocs) {
-        if (a.invoice_id) recomputeDocumentTotals(db, 'invoices', a.invoice_id);
-        if (a.bill_id) recomputeDocumentTotals(db, 'bills', a.bill_id);
+
+    await db.tx(async (client) => {
+      const allocations = (await client.query('SELECT * FROM allocations WHERE payment_id = $1', [id])).rows;
+      await client.query('DELETE FROM allocations WHERE payment_id = $1', [id]);
+      for (const allocation of allocations) {
+        if (allocation.invoice_id) await db.recomputeDocumentTotals(client, 'invoices', allocation.invoice_id);
+        if (allocation.bill_id) await db.recomputeDocumentTotals(client, 'bills', allocation.bill_id);
       }
-      db.prepare('DELETE FROM payments WHERE id = ?').run(id);
+      await client.query('DELETE FROM payments WHERE id = $1', [id]);
     });
     res.status(204).end();
   });
 
-  return r;
+  return router;
 }

@@ -3,14 +3,15 @@ import { AGING_BUCKETS, agingBucket, diffDays, endOfMonth, monthKey, monthsBetwe
 
 const round = (n) => Math.round(n);
 
-function agingRows(db, type, asOf) {
+export async function agingRows(db, type, asOf) {
   const table = type === 'ar' ? 'invoices' : 'bills';
-  const docs = db.prepare(
+  const docs = await db.many(
     `SELECT d.*, c.name AS contact_name, c.company AS contact_company
        FROM ${table} d JOIN contacts c ON c.id = d.contact_id
-      WHERE d.status IN ('open','partial') AND d.issue_date <= ? AND d.total_cents > d.paid_cents
-      ORDER BY d.due_date`
-  ).all(asOf);
+      WHERE d.status IN ('open','partial') AND d.issue_date <= $1 AND d.total_cents > d.paid_cents
+      ORDER BY d.due_date`,
+    [asOf],
+  );
 
   const map = new Map();
   for (const doc of docs) {
@@ -40,6 +41,7 @@ function agingRows(db, type, asOf) {
   const totals = { current: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90plus: 0, total: 0 };
   for (const row of rows) for (const key of Object.keys(totals)) totals[key] += row[key];
   const overdue = totals.d1_30 + totals.d31_60 + totals.d61_90 + totals.d90plus;
+
   return {
     type,
     asOf,
@@ -52,27 +54,28 @@ function agingRows(db, type, asOf) {
   };
 }
 
-function cashFlow(db, from, to) {
+export async function cashFlow(db, from, to) {
   const months = monthsBetween(from, to);
-  const rows = db.prepare(
-    `SELECT direction,
-            substr(date, 1, 7) AS period,
-            SUM(amount_cents) AS total
+  const rows = await db.many(
+    `SELECT direction, to_char(date, 'YYYY-MM') AS period, SUM(amount_cents)::int AS total
        FROM payments
-      WHERE date >= ? AND date <= ?
-      GROUP BY direction, period`
-  ).all(startOfMonth(from), endOfMonth(to));
+      WHERE date >= $1 AND date <= $2
+      GROUP BY direction, period`,
+    [startOfMonth(from), endOfMonth(to)],
+  );
   const byKey = new Map(rows.map((r) => [`${r.direction}:${r.period}`, r.total]));
   let running = 0;
-  const series = months.map((m) => {
-    const inflow = byKey.get(`in:${m}`) ?? 0;
-    const outflow = byKey.get(`out:${m}`) ?? 0;
+  const series = months.map((period) => {
+    const inflow = byKey.get(`in:${period}`) ?? 0;
+    const outflow = byKey.get(`out:${period}`) ?? 0;
     const net = inflow - outflow;
     running += net;
-    return { period: m, inflowCents: inflow, outflowCents: outflow, netCents: net, cumulativeCents: running };
+    return { period, inflowCents: inflow, outflowCents: outflow, netCents: net, cumulativeCents: running };
   });
+
   return {
-    from, to,
+    from,
+    to,
     series,
     totals: {
       inflowCents: series.reduce((s, r) => s + r.inflowCents, 0),
@@ -82,46 +85,62 @@ function cashFlow(db, from, to) {
   };
 }
 
-function profitLoss(db, from, to) {
+export async function profitLoss(db, from, to) {
   const months = monthsBetween(from, to);
-  const revenueLines = db.prepare(
-    `SELECT substr(d.issue_date, 1, 7) AS period, l.category, SUM(l.amount_cents) AS amount
-       FROM invoice_lines l JOIN invoices d ON d.id = l.invoice_id
-      WHERE d.status NOT IN ('draft','void') AND d.issue_date >= ? AND d.issue_date <= ?
-      GROUP BY period, l.category`
-  ).all(from, to);
-  const expenseLines = db.prepare(
-    `SELECT substr(d.issue_date, 1, 7) AS period, l.category, SUM(l.amount_cents) AS amount
-       FROM bill_lines l JOIN bills d ON d.id = l.bill_id
-      WHERE d.status NOT IN ('draft','void') AND d.issue_date >= ? AND d.issue_date <= ?
-      GROUP BY period, l.category`
-  ).all(from, to);
-  const discounts = db.prepare(
-    `SELECT substr(issue_date, 1, 7) AS period, SUM(discount_cents) AS amount
-       FROM invoices WHERE status NOT IN ('draft','void') AND issue_date >= ? AND issue_date <= ?
-      GROUP BY period`
-  ).all(from, to);
+
+  const [revenueLines, expenseLines, discounts] = await Promise.all([
+    db.many(
+      `SELECT to_char(d.issue_date, 'YYYY-MM') AS period, l.category, SUM(l.amount_cents)::int AS amount
+         FROM invoice_lines l JOIN invoices d ON d.id = l.invoice_id
+        WHERE d.status NOT IN ('draft','void') AND d.issue_date >= $1 AND d.issue_date <= $2
+        GROUP BY period, l.category`,
+      [from, to],
+    ),
+    db.many(
+      `SELECT to_char(d.issue_date, 'YYYY-MM') AS period, l.category, SUM(l.amount_cents)::int AS amount
+         FROM bill_lines l JOIN bills d ON d.id = l.bill_id
+        WHERE d.status NOT IN ('draft','void') AND d.issue_date >= $1 AND d.issue_date <= $2
+        GROUP BY period, l.category`,
+      [from, to],
+    ),
+    db.many(
+      `SELECT to_char(issue_date, 'YYYY-MM') AS period, SUM(discount_cents)::int AS amount
+         FROM invoices
+        WHERE status NOT IN ('draft','void') AND issue_date >= $1 AND issue_date <= $2
+        GROUP BY period`,
+      [from, to],
+    ),
+  ]);
 
   const discountByPeriod = new Map(discounts.map((d) => [d.period, d.amount]));
 
   const categoryTotals = (rows) => {
     const map = new Map();
-    for (const r of rows) map.set(r.category || 'Uncategorised', (map.get(r.category || 'Uncategorised') ?? 0) + r.amount);
-    return [...map.entries()].map(([category, amountCents]) => ({ category, amountCents }))
+    for (const row of rows) {
+      const key = row.category || 'Uncategorised';
+      map.set(key, (map.get(key) ?? 0) + row.amount);
+    }
+    return [...map.entries()]
+      .map(([category, amountCents]) => ({ category, amountCents }))
       .sort((a, b) => b.amountCents - a.amountCents);
   };
 
-  const series = months.map((m) => {
-    const revenue = revenueLines.filter((r) => r.period === m).reduce((s, r) => s + r.amount, 0) - (discountByPeriod.get(m) ?? 0);
-    const expenses = expenseLines.filter((r) => r.period === m).reduce((s, r) => s + r.amount, 0);
-    return { period: m, revenueCents: revenue, expenseCents: expenses, netCents: revenue - expenses };
+  const series = months.map((period) => {
+    const revenue = revenueLines
+      .filter((row) => row.period === period)
+      .reduce((sum, row) => sum + row.amount, 0) - (discountByPeriod.get(period) ?? 0);
+    const expenses = expenseLines
+      .filter((row) => row.period === period)
+      .reduce((sum, row) => sum + row.amount, 0);
+    return { period, revenueCents: revenue, expenseCents: expenses, netCents: revenue - expenses };
   });
 
   const totalRevenue = series.reduce((s, r) => s + r.revenueCents, 0);
   const totalExpenses = series.reduce((s, r) => s + r.expenseCents, 0);
 
   return {
-    from, to,
+    from,
+    to,
     series,
     revenueByCategory: categoryTotals(revenueLines),
     expenseByCategory: categoryTotals(expenseLines),
@@ -135,49 +154,48 @@ function profitLoss(db, from, to) {
   };
 }
 
-function summary(db, asOf = today()) {
-  const openAR = db.prepare(
-    `SELECT COALESCE(SUM(total_cents - paid_cents),0) AS total,
-            COALESCE(SUM(CASE WHEN due_date < ? THEN total_cents - paid_cents ELSE 0 END),0) AS overdue,
-            COUNT(*) AS docs
-       FROM invoices WHERE status IN ('open','partial')`
-  ).get(asOf);
-  const openAP = db.prepare(
-    `SELECT COALESCE(SUM(total_cents - paid_cents),0) AS total,
-            COALESCE(SUM(CASE WHEN due_date < ? THEN total_cents - paid_cents ELSE 0 END),0) AS overdue,
-            COUNT(*) AS docs
-       FROM bills WHERE status IN ('open','partial')`
-  ).get(asOf);
-
+export async function summary(db, asOf = today()) {
   const yearStart = `${asOf.slice(0, 4)}-01-01`;
-  const revenueYtd = db.prepare(
-    `SELECT COALESCE(SUM(l.amount_cents),0) AS s FROM invoice_lines l JOIN invoices d ON d.id = l.invoice_id
-      WHERE d.status NOT IN ('draft','void') AND d.issue_date BETWEEN ? AND ?`
-  ).get(yearStart, asOf).s;
-  const expenseYtd = db.prepare(
-    `SELECT COALESCE(SUM(l.amount_cents),0) AS s FROM bill_lines l JOIN bills d ON d.id = l.bill_id
-      WHERE d.status NOT IN ('draft','void') AND d.issue_date BETWEEN ? AND ?`
-  ).get(yearStart, asOf).s;
 
-  const cashIn30 = db.prepare(
-    `SELECT COALESCE(SUM(amount_cents),0) AS s FROM payments WHERE direction = 'in' AND date > date(?, '-30 days')`
-  ).get(asOf).s;
-  const cashOut30 = db.prepare(
-    `SELECT COALESCE(SUM(amount_cents),0) AS s FROM payments WHERE direction = 'out' AND date > date(?, '-30 days')`
-  ).get(asOf).s;
+  const [openAR, openAP, revenueYtd, expenseYtd, cashIn30, cashOut30, rev90, exp90] = await Promise.all([
+    db.one(
+      `SELECT COALESCE(SUM(total_cents - paid_cents), 0)::int AS total,
+              COALESCE(SUM(CASE WHEN due_date < $1 THEN total_cents - paid_cents ELSE 0 END), 0)::int AS overdue,
+              COUNT(*)::int AS docs
+         FROM invoices WHERE status IN ('open','partial')`, [asOf]),
+    db.one(
+      `SELECT COALESCE(SUM(total_cents - paid_cents), 0)::int AS total,
+              COALESCE(SUM(CASE WHEN due_date < $1 THEN total_cents - paid_cents ELSE 0 END), 0)::int AS overdue,
+              COUNT(*)::int AS docs
+         FROM bills WHERE status IN ('open','partial')`, [asOf]),
+    db.one(
+      `SELECT COALESCE(SUM(l.amount_cents), 0)::int AS s FROM invoice_lines l
+         JOIN invoices d ON d.id = l.invoice_id
+        WHERE d.status NOT IN ('draft','void') AND d.issue_date BETWEEN $1 AND $2`, [yearStart, asOf]),
+    db.one(
+      `SELECT COALESCE(SUM(l.amount_cents), 0)::int AS s FROM bill_lines l
+         JOIN bills d ON d.id = l.bill_id
+        WHERE d.status NOT IN ('draft','void') AND d.issue_date BETWEEN $1 AND $2`, [yearStart, asOf]),
+    db.one(
+      `SELECT COALESCE(SUM(amount_cents), 0)::int AS s FROM payments
+        WHERE direction = 'in' AND date > ($1::date - INTERVAL '30 days')`, [asOf]),
+    db.one(
+      `SELECT COALESCE(SUM(amount_cents), 0)::int AS s FROM payments
+        WHERE direction = 'out' AND date > ($1::date - INTERVAL '30 days')`, [asOf]),
+    db.one(
+      `SELECT COALESCE(SUM(l.amount_cents), 0)::int AS s FROM invoice_lines l
+         JOIN invoices d ON d.id = l.invoice_id
+        WHERE d.status NOT IN ('draft','void')
+          AND d.issue_date > ($1::date - INTERVAL '90 days') AND d.issue_date <= $1::date`, [asOf]),
+    db.one(
+      `SELECT COALESCE(SUM(l.amount_cents), 0)::int AS s FROM bill_lines l
+         JOIN bills d ON d.id = l.bill_id
+        WHERE d.status NOT IN ('draft','void')
+          AND d.issue_date > ($1::date - INTERVAL '90 days') AND d.issue_date <= $1::date`, [asOf]),
+  ]);
 
-  // Trailing-90-day revenue/expense annualised into days-sales-outstanding style metrics.
-  const rev90 = db.prepare(
-    `SELECT COALESCE(SUM(l.amount_cents),0) AS s FROM invoice_lines l JOIN invoices d ON d.id = l.invoice_id
-      WHERE d.status NOT IN ('draft','void') AND d.issue_date > date(?, '-90 days') AND d.issue_date <= ?`
-  ).get(asOf, asOf).s;
-  const exp90 = db.prepare(
-    `SELECT COALESCE(SUM(l.amount_cents),0) AS s FROM bill_lines l JOIN bills d ON d.id = l.bill_id
-      WHERE d.status NOT IN ('draft','void') AND d.issue_date > date(?, '-90 days') AND d.issue_date <= ?`
-  ).get(asOf, asOf).s;
-
-  const dso = rev90 > 0 ? Math.round((openAR.total / (rev90 / 90)) * 10) / 10 : 0;
-  const dpo = exp90 > 0 ? Math.round((openAP.total / (exp90 / 90)) * 10) / 10 : 0;
+  const dso = rev90.s > 0 ? Math.round((openAR.total / (rev90.s / 90)) * 10) / 10 : 0;
+  const dpo = exp90.s > 0 ? Math.round((openAP.total / (exp90.s / 90)) * 10) / 10 : 0;
 
   return {
     asOf,
@@ -187,11 +205,11 @@ function summary(db, asOf = today()) {
     payableOverdueCents: openAP.overdue,
     openInvoiceCount: openAR.docs,
     openBillCount: openAP.docs,
-    revenueYtdCents: revenueYtd,
-    expenseYtdCents: expenseYtd,
-    netYtdCents: revenueYtd - expenseYtd,
-    cashIn30Cents: cashIn30,
-    cashOut30Cents: cashOut30,
+    revenueYtdCents: revenueYtd.s,
+    expenseYtdCents: expenseYtd.s,
+    netYtdCents: revenueYtd.s - expenseYtd.s,
+    cashIn30Cents: cashIn30.s,
+    cashOut30Cents: cashOut30.s,
     dsoDays: dso,
     dpoDays: dpo,
     workingCapitalCents: openAR.total - openAP.total,
@@ -199,48 +217,43 @@ function summary(db, asOf = today()) {
 }
 
 export function reportsRouter(db) {
-  const r = Router();
+  const router = Router();
 
-  const parseType = (value) => {
-    if (value !== 'ar' && value !== 'ap') throw new Error('type must be ar or ap');
-    return value;
-  };
-
-  r.get('/summary', (req, res) => {
-    res.json(summary(db, req.query.asOf ?? today()));
+  router.get('/summary', async (req, res) => {
+    res.json(await summary(db, req.query.asOf ?? today()));
   });
 
-  r.get('/aging', (req, res) => {
+  router.get('/aging', async (req, res) => {
     const type = req.query.type === 'ap' ? 'ap' : 'ar';
-    res.json(agingRows(db, type, req.query.asOf ?? today()));
+    res.json(await agingRows(db, type, req.query.asOf ?? today()));
   });
 
-  r.get('/profit-loss', (req, res) => {
+  router.get('/profit-loss', async (req, res) => {
     const to = req.query.to ?? today();
     const from = req.query.from ?? `${to.slice(0, 4)}-01-01`;
-    res.json(profitLoss(db, from, to));
+    res.json(await profitLoss(db, from, to));
   });
 
-  r.get('/cash-flow', (req, res) => {
+  router.get('/cash-flow', async (req, res) => {
     const to = req.query.to ?? today();
     const from = req.query.from ?? startOfMonth(monthKey(to));
-    res.json(cashFlow(db, from, to));
+    res.json(await cashFlow(db, from, to));
   });
 
-  r.get('/contact-balances', (req, res) => {
+  router.get('/contact-balances', async (req, res) => {
     const type = req.query.type === 'ap' ? 'ap' : 'ar';
-    const rows = agingRows(db, type, req.query.asOf ?? today());
-    res.json(rows);
+    res.json(await agingRows(db, type, req.query.asOf ?? today()));
   });
 
-  r.get('/export', (req, res) => {
+  router.get('/export', async (req, res) => {
     const report = String(req.query.report ?? 'ar-aging');
     const asOf = req.query.asOf ?? today();
     let csv = '';
     let filename = 'report.csv';
+
     if (report === 'ar-aging' || report === 'ap-aging') {
       const type = report === 'ar-aging' ? 'ar' : 'ap';
-      const data = agingRows(db, type, asOf);
+      const data = await agingRows(db, type, asOf);
       csv = toCsv(
         [
           { key: 'contactName', label: 'Contact' },
@@ -251,13 +264,21 @@ export function reportsRouter(db) {
           { key: 'd90plus', label: '90+ days' },
           { key: 'total', label: 'Total' },
         ],
-        data.rows.map((row) => ({ ...row, current: row.current / 100, d1_30: row.d1_30 / 100, d31_60: row.d31_60 / 100, d61_90: row.d61_90 / 100, d90plus: row.d90plus / 100, total: row.total / 100 })),
+        data.rows.map((row) => ({
+          ...row,
+          current: row.current / 100,
+          d1_30: row.d1_30 / 100,
+          d31_60: row.d31_60 / 100,
+          d61_90: row.d61_90 / 100,
+          d90plus: row.d90plus / 100,
+          total: row.total / 100,
+        })),
       );
       filename = `${report}-${asOf}.csv`;
     } else if (report === 'profit-loss') {
       const to = req.query.to ?? today();
       const from = req.query.from ?? `${to.slice(0, 4)}-01-01`;
-      const data = profitLoss(db, from, to);
+      const data = await profitLoss(db, from, to);
       csv = toCsv(
         [
           { key: 'period', label: 'Period' },
@@ -265,13 +286,18 @@ export function reportsRouter(db) {
           { key: 'expenses', label: 'Expenses' },
           { key: 'net', label: 'Net' },
         ],
-        data.series.map((s) => ({ period: s.period, revenue: (s.revenueCents / 100).toFixed(2), expenses: (s.expenseCents / 100).toFixed(2), net: (s.netCents / 100).toFixed(2) })),
+        data.series.map((s) => ({
+          period: s.period,
+          revenue: (s.revenueCents / 100).toFixed(2),
+          expenses: (s.expenseCents / 100).toFixed(2),
+          net: (s.netCents / 100).toFixed(2),
+        })),
       );
       filename = `profit-loss-${from}-to-${to}.csv`;
     } else if (report === 'cash-flow') {
       const to = req.query.to ?? today();
       const from = req.query.from ?? startOfMonth(monthKey(to));
-      const data = cashFlow(db, from, to);
+      const data = await cashFlow(db, from, to);
       csv = toCsv(
         [
           { key: 'period', label: 'Period' },
@@ -279,18 +305,22 @@ export function reportsRouter(db) {
           { key: 'outflow', label: 'Cash out' },
           { key: 'net', label: 'Net' },
         ],
-        data.series.map((s) => ({ period: s.period, inflow: (s.inflowCents / 100).toFixed(2), outflow: (s.outflowCents / 100).toFixed(2), net: (s.netCents / 100).toFixed(2) })),
+        data.series.map((s) => ({
+          period: s.period,
+          inflow: (s.inflowCents / 100).toFixed(2),
+          outflow: (s.outflowCents / 100).toFixed(2),
+          net: (s.netCents / 100).toFixed(2),
+        })),
       );
       filename = `cash-flow-${from}-to-${to}.csv`;
     } else {
       throw new Error(`Unknown report: ${report}`);
     }
+
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(csv);
   });
 
-  return r;
+  return router;
 }
-
-export { agingRows, cashFlow, profitLoss, summary };

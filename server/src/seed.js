@@ -1,4 +1,4 @@
-import { openDb, recomputeDocumentTotals, tx } from './db.js';
+import { createDb } from './db.js';
 import { hashPassword } from './auth.js';
 
 /** Deterministic PRNG so demo data and tests are reproducible. */
@@ -82,202 +82,318 @@ function rngInt(rand, min, max) {
   return Math.floor(rand() * (max - min + 1)) + min;
 }
 
-export function seed(db, { force = false } = {}) {
-  const existing = db.prepare('SELECT COUNT(*) AS c FROM users').get().c;
-  if (existing > 0 && !force) return { skipped: true };
+function lineTotals(lines) {
+  const subtotal = lines.reduce((sum, line) => sum + line.amount, 0);
+  const tax = lines.reduce((sum, line) => sum + Math.round((line.amount * line.tax) / 100), 0);
+  return { subtotal, tax, total: subtotal + tax };
+}
+
+export async function seed(db, { force = false } = {}) {
+  const existing = await db.one('SELECT COUNT(*)::int AS c FROM users');
+  if (existing.c > 0 && !force) return { skipped: true };
 
   const rand = mulberry32(20261020);
   const pick = (arr) => arr[rngInt(rand, 0, arr.length - 1)];
 
-  tx(db, () => {
-    if (force) {
-      for (const t of ['allocations', 'payments', 'invoice_lines', 'bill_lines', 'invoices', 'bills', 'contacts', 'users', 'counters']) {
-        db.prepare(`DELETE FROM ${t}`).run();
+  // ----- plan the whole ledger in memory, then write it in bulk -----
+  const contacts = [
+    ...CUSTOMERS.map(([name, email, city, terms]) => ({ type: 'customer', name, email, city, terms, note: '' })),
+    ...VENDORS.map(([name, note, email, city, terms]) => ({ type: 'vendor', name, email, city, terms, note })),
+  ];
+
+  const blocks = new Map();
+  const takeNumber = (kind, prefix, date) => {
+    const year = String(date).slice(0, 4);
+    const key = `${kind}:${year}`;
+    let block = blocks.get(key);
+    if (!block) {
+      block = { next: 1, consumed: 0 };
+      blocks.set(key, block);
+    }
+    const value = block.next;
+    block.next += 1;
+    block.consumed += 1;
+    return `${prefix}-${year}-${String(value).padStart(4, '0')}`;
+  };
+
+  const invoices = [];
+  const bills = [];
+  const payments = [];
+  const agingUsed = { current: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90plus: 0 };
+  const methods = ['Bank transfer', 'Credit card', 'Cheque'];
+
+  const queuePayment = (doc, { direction, amount, issueDate }) => {
+    const payDate = addDays(issueDate, rngInt(rand, 4, 34));
+    if (payDate > todayISO()) return;
+    doc.paid = amount;
+    doc.payStatus = amount >= doc.total ? 'paid' : 'partial';
+    payments.push({
+      number: takeNumber('payment', 'PMT', payDate),
+      direction,
+      contactName: doc.contactName,
+      date: payDate,
+      amountCents: amount,
+      method: pick(methods),
+      reference: direction === 'in' ? `REF-${rngInt(rand, 1000, 9999)}` : `ACH-${rngInt(rand, 1000, 9999)}`,
+      docType: doc.type,
+      docNumber: doc.number,
+      docAmount: amount,
+    });
+  };
+
+  const now = new Date();
+
+  // ---------------- Revenue side: ten months of invoices ----------------
+  for (let back = 9; back >= 0; back -= 1) {
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1));
+    const invoiceCount = rngInt(rand, 7, 9);
+    let dayCursor = 2;
+    for (let i = 0; i < invoiceCount; i += 1) {
+      dayCursor += rngInt(rand, 1, 3);
+      const issueDate = iso(new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth(), Math.min(dayCursor, 27))));
+      if (issueDate > todayISO()) continue;
+
+      const customer = pick(CUSTOMERS);
+      const ageDays = Math.round((Date.now() - new Date(`${issueDate}T00:00:00Z`).getTime()) / 86400000);
+      const dueDate = addDays(issueDate, customer[3]);
+      const daysPastDue = ageDays - customer[3];
+      const bucket = daysPastDue <= 0 ? 'current'
+        : daysPastDue <= 30 ? 'd1_30'
+          : daysPastDue <= 60 ? 'd31_60'
+            : daysPastDue <= 90 ? 'd61_90' : 'd90plus';
+
+      const roll = rand();
+      let plan;
+      if (roll < 0.05) plan = 'draft';
+      else if (agingUsed[bucket] < AGING_QUOTA[bucket]) {
+        plan = roll < 0.22 ? 'partial' : 'open';
+        agingUsed[bucket] += 1;
+      } else plan = 'paid';
+
+      const lines = [];
+      const lineCount = rngInt(rand, 1, 3);
+      const used = new Set();
+      for (let l = 0; l < lineCount; l += 1) {
+        let item = pick(SERVICES);
+        let guard = 0;
+        while (used.has(item[0]) && guard < 12) { item = pick(SERVICES); guard += 1; }
+        used.add(item[0]);
+        const qty = pick([1, 1, 1, 2]);
+        lines.push({ description: item[0], category: item[1], qty, unit: item[2], amount: Math.round(item[2] * qty), tax: 8.25 });
       }
+      const totals = lineTotals(lines);
+
+      const doc = {
+        type: 'invoice',
+        number: takeNumber('invoice', 'INV', issueDate),
+        contactName: customer[0],
+        issueDate,
+        dueDate,
+        status: plan === 'draft' ? 'draft' : 'open',
+        reference: `PO-${rngInt(rand, 1000, 9999)}`,
+        ...totals,
+        lines,
+        paid: 0,
+        payStatus: null,
+      };
+      invoices.push(doc);
+
+      if (plan === 'paid') queuePayment(doc, { direction: 'in', amount: totals.total, issueDate });
+      else if (plan === 'partial') queuePayment(doc, { direction: 'in', amount: Math.round(totals.total * 0.45), issueDate });
+    }
+  }
+
+  // ---------------- Expense side: recurring + occasional bills ----------------
+  for (let back = 9; back >= 0; back -= 1) {
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1));
+    for (const recurring of RECURRING_BILLS) {
+      const issueDate = iso(new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth(), Math.min(recurring.day, 27))));
+      if (issueDate > todayISO()) continue;
+      const terms = VENDORS.find((v) => v[0] === recurring.vendor)?.[4] ?? 15;
+      const ageDays = Math.round((Date.now() - new Date(`${issueDate}T00:00:00Z`).getTime()) / 86400000);
+      // Recurring costs are paid on time; the newest run stays open until payment day.
+      const plan = ageDays < 12 ? 'open' : ageDays < 40 && rand() < 0.15 ? 'partial' : 'paid';
+
+      const tax = Math.round((recurring.amount * recurring.tax) / 100);
+      const total = recurring.amount + tax;
+      const doc = {
+        type: 'bill',
+        number: takeNumber('bill', 'BILL', issueDate),
+        contactName: recurring.vendor,
+        issueDate,
+        dueDate: addDays(issueDate, terms),
+        status: 'open',
+        reference: `FY${issueDate.slice(0, 4)}`,
+        subtotal: recurring.amount,
+        tax,
+        total,
+        lines: [{ description: recurring.description, category: recurring.category, qty: 1, unit: recurring.amount, amount: recurring.amount, tax: recurring.tax }],
+        paid: 0,
+        payStatus: null,
+      };
+      bills.push(doc);
+      if (plan === 'paid') queuePayment(doc, { direction: 'out', amount: total, issueDate });
+      else if (plan === 'partial') queuePayment(doc, { direction: 'out', amount: Math.round(total * 0.5), issueDate });
+    }
+
+    if (back % 2 === 0) {
+      const occasional = pick(OCCASIONAL_BILLS);
+      const day = rngInt(rand, 3, 26);
+      const issueDate = iso(new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth(), day)));
+      if (issueDate <= todayISO()) {
+        bills.push({
+          type: 'bill',
+          number: takeNumber('bill', 'BILL', issueDate),
+          contactName: occasional.vendor,
+          issueDate,
+          dueDate: addDays(issueDate, 21),
+          status: 'open',
+          reference: '',
+          subtotal: occasional.amount,
+          tax: 0,
+          total: occasional.amount,
+          lines: [{ description: occasional.description, category: occasional.category, qty: 1, unit: occasional.amount, amount: occasional.amount, tax: 0 }],
+          paid: 0,
+          payStatus: null,
+        });
+      }
+    }
+  }
+
+  // ----- bulk write -----
+  const result = await db.tx(async (client) => {
+    if (force) {
+      await client.query(
+        'TRUNCATE allocations, payments, invoice_lines, bill_lines, invoices, bills, contacts, users, counters RESTART IDENTITY CASCADE',
+      );
     }
 
     const { salt, hash } = hashPassword('test1234');
-    db.prepare('INSERT INTO users (email, name, password_hash, salt, role) VALUES (?, ?, ?, ?, ?)')
-      .run('test@ledgerly.app', 'Alex Morgan', hash, salt, 'owner');
-
-    db.prepare(
-      `UPDATE settings SET company_name = ?, legal_name = ?, currency = 'USD', default_terms_days = 30,
-       default_tax_rate = 8.25, invoice_prefix = 'INV', bill_prefix = 'BILL', payment_prefix = 'PMT' WHERE id = 1`,
-    ).run('Northwind Studio', 'Northwind Studio LLC');
-
-    const contactIds = new Map();
-    const insertContact = db.prepare(
-      `INSERT INTO contacts (type, name, company, email, phone, address, city, country, terms_days, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    await client.query(
+      'INSERT INTO users (email, name, password_hash, salt, role) VALUES ($1,$2,$3,$4,$5)',
+      ['test@ledgerly.app', 'Alex Morgan', hash, salt, 'owner'],
     );
-    for (const [name, email, city, terms] of CUSTOMERS) {
-      const res = insertContact.run('customer', name, name, email, '', '', city, 'United States', terms, '');
-      contactIds.set(name, Number(res.lastInsertRowid));
-    }
-    for (const [name, note, email, city, terms] of VENDORS) {
-      const res = insertContact.run('vendor', name, name, email, '', '', city, 'United States', terms, note);
-      contactIds.set(name, Number(res.lastInsertRowid));
+    await client.query(
+      `UPDATE settings SET company_name = $1, legal_name = $2, currency = 'USD', default_terms_days = 30,
+              default_tax_rate = 8.25, invoice_prefix = 'INV', bill_prefix = 'BILL', payment_prefix = 'PMT'
+        WHERE id = 1`,
+      ['Northwind Studio', 'Northwind Studio LLC'],
+    );
+
+    await client.query(
+      `INSERT INTO contacts (type, name, company, email, city, country, terms_days, notes)
+       SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::int[], $8::text[])`,
+      [
+        contacts.map((c) => c.type), contacts.map((c) => c.name), contacts.map((c) => c.name),
+        contacts.map((c) => c.email), contacts.map((c) => c.city), contacts.map(() => 'United States'),
+        contacts.map((c) => c.terms), contacts.map((c) => c.note),
+      ],
+    );
+    const contactRows = await client.query('SELECT id, name FROM contacts');
+    const contactId = new Map(contactRows.rows.map((row) => [row.name, row.id]));
+
+    for (const [key, block] of blocks) {
+      await client.query(
+        `INSERT INTO counters (key, value) VALUES ($1, $2)
+         ON CONFLICT (key) DO UPDATE SET value = GREATEST(counters.value, $2)`,
+        [key, block.consumed],
+      );
     }
 
-    const counters = new Map();
-    const nextNumber = (kind, prefix, date) => {
-      const year = date.slice(0, 4);
-      const key = `${kind}:${year}`;
-      const value = (counters.get(key) ?? 0) + 1;
-      counters.set(key, value);
-      db.prepare('INSERT INTO counters (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
-        .run(key, value);
-      return `${prefix}-${year}-${String(value).padStart(4, '0')}`;
+    const insertDocs = async (table, docs, stampColumn) => {
+      if (docs.length === 0) return new Map();
+      const { rows } = await client.query(
+        `INSERT INTO ${table} (number, contact_id, issue_date, due_date, status, currency,
+                               subtotal_cents, tax_cents, total_cents, discount_cents, notes, reference, ${stampColumn})
+         SELECT * FROM unnest($1::text[], $2::int[], $3::date[], $4::date[], $5::text[], $6::text[],
+                              $7::int[], $8::int[], $9::int[], $10::int[], $11::text[], $12::text[], $13::timestamptz[])
+         RETURNING id, number`,
+        [
+          docs.map((d) => d.number), docs.map((d) => contactId.get(d.contactName)), docs.map((d) => d.issueDate),
+          docs.map((d) => d.dueDate), docs.map((d) => d.status), docs.map(() => 'USD'),
+          docs.map((d) => d.subtotal), docs.map((d) => d.tax), docs.map((d) => d.total), docs.map(() => 0),
+          docs.map(() => ''), docs.map((d) => d.reference),
+          docs.map((d) => (d.status === 'draft' ? null : new Date().toISOString())),
+        ],
+      );
+      return new Map(rows.map((row) => [row.number, row.id]));
     };
 
-    const insertInvoice = db.prepare(
-      `INSERT INTO invoices (number, contact_id, issue_date, due_date, status, currency, discount_cents, notes, reference, sent_at)
-       VALUES (?, ?, ?, ?, 'open', 'USD', 0, '', ?, datetime('now'))`,
-    );
-    const insertInvoiceLine = db.prepare(
-      `INSERT INTO invoice_lines (invoice_id, description, category, quantity, unit_price_cents, tax_rate, amount_cents, position)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-    const insertBill = db.prepare(
-      `INSERT INTO bills (number, contact_id, issue_date, due_date, status, currency, discount_cents, notes, reference, approved_at)
-       VALUES (?, ?, ?, ?, 'open', 'USD', 0, '', ?, datetime('now'))`,
-    );
-    const insertBillLine = db.prepare(
-      `INSERT INTO bill_lines (bill_id, description, category, quantity, unit_price_cents, tax_rate, amount_cents, position)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-    const insertPayment = db.prepare(
-      `INSERT INTO payments (number, direction, contact_id, date, amount_cents, method, reference, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, '')`,
-    );
-    const insertAlloc = db.prepare('INSERT INTO allocations (payment_id, invoice_id, bill_id, amount_cents) VALUES (?, ?, ?, ?)');
+    const invoiceIds = await insertDocs('invoices', invoices, 'sent_at');
+    const billIds = await insertDocs('bills', bills, 'approved_at');
 
-    const countersUsed = { invoices: 0, bills: 0, payments: 0 };
-    const agingUsed = { current: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90plus: 0 };
-    const methods = ['Bank transfer', 'Credit card', 'Cheque'];
-
-    const payDoc = ({ direction, contactId, amount, issueDate, docId, docType }) => {
-      const payDate = addDays(issueDate, rngInt(rand, 4, 34));
-      if (payDate > todayISO()) return null;
-      const number = nextNumber('payment', 'PMT', payDate);
-      const res = insertPayment.run(number, direction, contactId, payDate, amount, pick(methods), direction === 'in' ? `REF-${rngInt(rand, 1000, 9999)}` : `ACH-${rngInt(rand, 1000, 9999)}`);
-      insertAlloc.run(Number(res.lastInsertRowid), docType === 'invoice' ? docId : null, docType === 'bill' ? docId : null, amount);
-      recomputeDocumentTotals(db, docType === 'invoice' ? 'invoices' : 'bills', docId);
-      countersUsed.payments += 1;
-      return number;
+    const insertLines = async (table, fk, docs, idMap) => {
+      const rows = [];
+      for (const doc of docs) {
+        const id = idMap.get(doc.number);
+        doc.lines.forEach((line, position) => rows.push({ id, line, position }));
+      }
+      if (rows.length === 0) return;
+      await client.query(
+        `INSERT INTO ${table} (${fk}, description, category, quantity, unit_price_cents, tax_rate, amount_cents, position)
+         SELECT * FROM unnest($1::int[], $2::text[], $3::text[], $4::float8[], $5::int[], $6::float8[], $7::int[], $8::int[])`,
+        [
+          rows.map((r) => r.id), rows.map((r) => r.line.description), rows.map((r) => r.line.category),
+          rows.map((r) => r.line.qty), rows.map((r) => r.line.unit), rows.map((r) => r.line.tax),
+          rows.map((r) => r.line.amount), rows.map((r) => r.position),
+        ],
+      );
     };
 
-    const now = new Date();
+    await insertLines('invoice_lines', 'invoice_id', invoices, invoiceIds);
+    await insertLines('bill_lines', 'bill_id', bills, billIds);
 
-    // ---------------- Revenue side: ten months of invoices ----------------
-    for (let back = 9; back >= 0; back -= 1) {
-      const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1));
-      const invoiceCount = rngInt(rand, 7, 9);
-      let dayCursor = 2;
-      for (let i = 0; i < invoiceCount; i += 1) {
-        dayCursor += rngInt(rand, 1, 3);
-        const issueDate = iso(new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth(), Math.min(dayCursor, 27))));
-        if (issueDate > todayISO()) continue;
+    if (payments.length > 0) {
+      const { rows } = await client.query(
+        `INSERT INTO payments (number, direction, contact_id, date, amount_cents, method, reference, notes)
+         SELECT * FROM unnest($1::text[], $2::text[], $3::int[], $4::date[], $5::int[], $6::text[], $7::text[], $8::text[])
+         RETURNING id, number`,
+        [
+          payments.map((p) => p.number), payments.map((p) => p.direction),
+          payments.map((p) => contactId.get(p.contactName)), payments.map((p) => p.date),
+          payments.map((p) => p.amountCents), payments.map((p) => p.method),
+          payments.map((p) => p.reference), payments.map(() => ''),
+        ],
+      );
+      const paymentIds = new Map(rows.map((row) => [row.number, row.id]));
 
-        const customer = pick(CUSTOMERS);
-        const contactId = contactIds.get(customer[0]);
-        const ageDays = Math.round((Date.now() - new Date(`${issueDate}T00:00:00Z`).getTime()) / 86400000);
-        const dueDate = addDays(issueDate, customer[3]);
-        const daysPastDue = ageDays - customer[3];
-        const bucket = daysPastDue <= 0 ? 'current'
-          : daysPastDue <= 30 ? 'd1_30'
-            : daysPastDue <= 60 ? 'd31_60'
-              : daysPastDue <= 90 ? 'd61_90' : 'd90plus';
-
-        const roll = rand();
-        let plan;
-        if (roll < 0.05) plan = 'draft';
-        else if (agingUsed[bucket] < AGING_QUOTA[bucket]) {
-          plan = roll < 0.22 ? 'partial' : 'open';
-          agingUsed[bucket] += 1;
-        } else plan = 'paid';
-
-        const number = nextNumber('invoice', 'INV', issueDate);
-        const res = insertInvoice.run(number, contactId, issueDate, dueDate, `PO-${rngInt(rand, 1000, 9999)}`);
-        const id = Number(res.lastInsertRowid);
-        const lineCount = rngInt(rand, 1, 3);
-        const used = new Set();
-        for (let l = 0; l < lineCount; l += 1) {
-          let item = pick(SERVICES);
-          let guard = 0;
-          while (used.has(item[0]) && guard < 12) { item = pick(SERVICES); guard += 1; }
-          used.add(item[0]);
-          const qty = pick([1, 1, 1, 2]);
-          insertInvoiceLine.run(id, item[0], item[1], qty, item[2], 8.25, Math.round(item[2] * qty), l);
-        }
-        recomputeDocumentTotals(db, 'invoices', id);
-        countersUsed.invoices += 1;
-
-        if (plan === 'draft') {
-          db.prepare(`UPDATE invoices SET status = 'draft', sent_at = NULL WHERE id = ?`).run(id);
-          continue;
-        }
-
-        const doc = db.prepare('SELECT * FROM invoices WHERE id = ?').get(id);
-        if (plan === 'paid') {
-          payDoc({ direction: 'in', contactId, amount: doc.total_cents, issueDate, docId: id, docType: 'invoice' });
-        } else if (plan === 'partial') {
-          payDoc({ direction: 'in', contactId, amount: Math.round(doc.total_cents * 0.45), issueDate, docId: id, docType: 'invoice' });
-        }
-      }
+      await client.query(
+        `INSERT INTO allocations (payment_id, invoice_id, bill_id, amount_cents)
+         SELECT * FROM unnest($1::int[], $2::int[], $3::int[], $4::int[])`,
+        [
+          payments.map((p) => paymentIds.get(p.number)),
+          payments.map((p) => (p.docType === 'invoice' ? invoiceIds.get(p.docNumber) : null)),
+          payments.map((p) => (p.docType === 'bill' ? billIds.get(p.docNumber) : null)),
+          payments.map((p) => p.docAmount),
+        ],
+      );
     }
 
-    // ---------------- Expense side: recurring + occasional bills ----------------
-    for (let back = 9; back >= 0; back -= 1) {
-      const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1));
-      for (const recurring of RECURRING_BILLS) {
-        const issueDate = iso(new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth(), Math.min(recurring.day, 27))));
-        if (issueDate > todayISO()) continue;
-        const contactId = contactIds.get(recurring.vendor);
-        const terms = VENDORS.find((v) => v[0] === recurring.vendor)?.[4] ?? 15;
-        const ageDays = Math.round((Date.now() - new Date(`${issueDate}T00:00:00Z`).getTime()) / 86400000);
-        // Recurring costs are paid on time; the newest run stays open until payment day.
-        const plan = ageDays < 12 ? 'open' : ageDays < 40 && rand() < 0.15 ? 'partial' : 'paid';
+    const applyPaymentStatus = async (table, docs, idMap) => {
+      const paid = docs.filter((d) => d.payStatus);
+      if (paid.length === 0) return;
+      await client.query(
+        `UPDATE ${table} SET paid_cents = u.paid, status = u.status, updated_at = now()
+           FROM unnest($1::int[], $2::int[], $3::text[]) AS u(id, paid, status)
+          WHERE ${table}.id = u.id`,
+        [paid.map((d) => idMap.get(d.number)), paid.map((d) => d.paid), paid.map((d) => d.payStatus)],
+      );
+    };
 
-        const number = nextNumber('bill', 'BILL', issueDate);
-        const res = insertBill.run(number, contactId, issueDate, addDays(issueDate, terms), `FY${issueDate.slice(0, 4)}`);
-        const id = Number(res.lastInsertRowid);
-        insertBillLine.run(id, recurring.description, recurring.category, 1, recurring.amount, recurring.tax, recurring.amount, 0);
-        recomputeDocumentTotals(db, 'bills', id);
-        countersUsed.bills += 1;
+    await applyPaymentStatus('invoices', invoices, invoiceIds);
+    await applyPaymentStatus('bills', bills, billIds);
 
-        if (plan === 'paid') {
-          const total = db.prepare('SELECT total_cents AS t FROM bills WHERE id = ?').get(id).t;
-          payDoc({ direction: 'out', contactId, amount: total, issueDate, docId: id, docType: 'bill' });
-        }
-      }
-
-      if (back % 2 === 0) {
-        const occasional = pick(OCCASIONAL_BILLS);
-        const day = rngInt(rand, 3, 26);
-        const issueDate = iso(new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth(), day)));
-        if (issueDate <= todayISO()) {
-          const contactId = contactIds.get(occasional.vendor);
-          const number = nextNumber('bill', 'BILL', issueDate);
-          const res = insertBill.run(number, contactId, issueDate, addDays(issueDate, 21), '');
-          const id = Number(res.lastInsertRowid);
-          insertBillLine.run(id, occasional.description, occasional.category, 1, occasional.amount, 0, occasional.amount, 0);
-          recomputeDocumentTotals(db, 'bills', id);
-          countersUsed.bills += 1;
-        }
-      }
-    }
-
-    return countersUsed;
+    return { invoices: invoices.length, bills: bills.length, payments: payments.length };
   });
 
-  return { skipped: false };
+  return { skipped: false, ...result };
 }
 
 if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}`) {
-  const db = openDb();
-  const result = seed(db, { force: process.argv.includes('--force') });
+  try { process.loadEnvFile?.('.env'); } catch { /* optional */ }
+  const db = createDb();
+  await db.migrate();
+  const result = await seed(db, { force: process.argv.includes('--force') });
   console.log(result.skipped ? 'Database already has users — seed skipped (use --force to reset).' : 'Seed complete: test@ledgerly.app / test1234');
-  db.close();
+  await db.close();
 }
-
