@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '../api';
 import type { Contact, DocumentDoc, LineItem } from '../types';
-import { addDaysISO, centsToInput, parseMoneyInput, todayISO } from '../lib/format';
-import { Button, Field, Icon, Modal, useToast } from '../ui';
+import { addDaysISO, todayISO } from '../lib/format';
+import { Button, Field, Icon, Modal, MoneyInput, useToast } from '../ui';
 
 interface Props {
   kind: 'invoice' | 'bill';
@@ -204,7 +204,7 @@ export function DocumentEditor({ kind, doc, presetContactId, onClose, onSaved }:
                       </select>
                     </td>
                     <td><input className="input input-sm num" type="number" min="0" step="0.25" value={line.quantity} onChange={(e) => updateLine(line.key, { quantity: Number(e.target.value) })} /></td>
-                    <td><input className="input input-sm num" type="number" min="0" step="0.01" value={centsToInput(line.unitPriceCents)} onChange={(e) => updateLine(line.key, { unitPriceCents: parseMoneyInput(e.target.value) })} /></td>
+                    <td><MoneyInput className="input input-sm num" cents={line.unitPriceCents} onCents={(unitPriceCents) => updateLine(line.key, { unitPriceCents })} /></td>
                     <td><input className="input input-sm num" type="number" min="0" max="100" step="0.25" value={line.taxRate} onChange={(e) => updateLine(line.key, { taxRate: Number(e.target.value) })} /></td>
                     <td className="line-amt num">{(Math.round(line.quantity * line.unitPriceCents) / 100).toFixed(2)}</td>
                     <td>
@@ -240,7 +240,7 @@ export function DocumentEditor({ kind, doc, presetContactId, onClose, onSaved }:
             </div>
             <div className="col-6">
               <Field label="Discount" hint="Applied before tax">
-                <input className="input num" type="number" min="0" step="0.01" value={centsToInput(discountCents)} onChange={(e) => setDiscountCents(parseMoneyInput(e.target.value))} />
+                <MoneyInput className="input num" cents={discountCents} onCents={setDiscountCents} />
               </Field>
             </div>
             <div className="col-12">

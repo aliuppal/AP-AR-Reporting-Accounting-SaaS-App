@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { centsToInput, parseMoneyInput } from './lib/format';
 import type { DocStatus } from './types';
 
 /* ------------------------------- Icons ------------------------------- */
@@ -135,6 +136,38 @@ export function Field({ label, hint, children, className = '' }: { label: string
 
 export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`input ${props.className ?? ''}`} />;
+}
+
+/**
+ * Money field that keeps the user's raw text while they type and only normalises it to
+ * two decimals on blur. Re-formatting the value on every keystroke (cents → "x.xx") rewrites
+ * the text under the caret, so typing "443.83" ended up as "0.03".
+ */
+export function MoneyInput({ cents, onCents, ...rest }: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type'> & { cents: number; onCents: (cents: number) => void }) {
+  const [text, setText] = useState(() => (cents ? centsToInput(cents) : ''));
+  // Follow outside changes (auto-allocation, reset) without fighting the user's own typing.
+  useEffect(() => {
+    setText((current) => (parseMoneyInput(current) === cents ? current : (cents ? centsToInput(cents) : '')));
+  }, [cents]);
+  return (
+    <input
+      {...rest}
+      type="text"
+      inputMode="decimal"
+      autoComplete="off"
+      placeholder={rest.placeholder ?? '0.00'}
+      value={text}
+      onChange={(e) => {
+        const next = e.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
+        setText(next);
+        onCents(parseMoneyInput(next));
+      }}
+      onBlur={(e) => {
+        setText(text ? centsToInput(parseMoneyInput(text)) : '');
+        rest.onBlur?.(e);
+      }}
+    />
+  );
 }
 
 export function Button({ variant = 'default', size, children, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'default' | 'primary' | 'ghost' | 'danger'; size?: 'sm' }) {

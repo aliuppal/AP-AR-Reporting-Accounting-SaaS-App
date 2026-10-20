@@ -11,8 +11,8 @@ function buildStamp() {
 
 export function Login() {
   const { login } = useAuth();
-  const [email, setEmail] = useState('test@ledgerly.app');
-  const [password, setPassword] = useState('test1234');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [apiState, setApiState] = useState<'checking' | 'online' | 'unreachable'>('checking');
 
@@ -42,9 +42,9 @@ export function Login() {
     }
   };
 
+  // The test credentials are never rendered or typed into the form: a login page that
+  // displays a password is a strong phishing signal for browser/antivirus web shields.
   const signInWithTestAccount = async () => {
-    setEmail('test@ledgerly.app');
-    setPassword('test1234');
     setBusy(true);
     setError('');
     try {
@@ -95,7 +95,7 @@ export function Login() {
         <div className="auth-card stack gap-24" style={{ gap: 24 }}>
           <div className="stack" style={{ gap: 6 }}>
             <h2>Sign in to your workspace</h2>
-            <p className="muted small">Use the demo account below, or your own credentials.</p>
+            <p className="muted small">Sign in with your credentials, or explore the test workspace below.</p>
           </div>
 
           <form className="stack" style={{ gap: 14 }} onSubmit={submit}>
@@ -132,8 +132,7 @@ export function Login() {
           </form>
 
           <div className="demo-note">
-            <strong>Test account</strong><br />
-            <span className="num">test@ledgerly.app</span> · <span className="num">test1234</span><br />
+            <strong>Test workspace</strong><br />
             <span className="small">Seeded with 10 months of invoices, bills and payments.</span>
             <button
               type="button"

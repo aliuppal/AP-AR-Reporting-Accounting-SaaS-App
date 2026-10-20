@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '../api';
 import type { Contact, DocumentDoc, Payment } from '../types';
-import { centsToInput, formatDate, parseMoneyInput, todayISO } from '../lib/format';
-import { Button, Field, Icon, Modal, Money, useToast } from '../ui';
+import { centsToInput, formatDate, todayISO } from '../lib/format';
+import { Button, Field, Icon, Modal, Money, MoneyInput, useToast } from '../ui';
 
 interface Props {
   direction: 'in' | 'out';
@@ -145,7 +145,7 @@ export function PaymentModal({ direction, presetContactId, presetDoc, onClose, o
         </div>
         <div className="col-3">
           <Field label="Amount">
-            <input className="input num" type="number" min="0" step="0.01" value={centsToInput(amountCents)} onChange={(e) => setAmountCents(parseMoneyInput(e.target.value))} />
+            <MoneyInput className="input num" cents={amountCents} onCents={setAmountCents} />
           </Field>
         </div>
         <div className="col-4">
@@ -220,15 +220,11 @@ export function PaymentModal({ direction, presetContactId, presetDoc, onClose, o
                     <td className="muted small">{formatDate(row.dueDate)}</td>
                     <td className="right"><Money cents={row.balanceCents} /></td>
                     <td className="right">
-                      <input
+                      <MoneyInput
                         className="input input-sm num"
-                        type="number"
-                        min="0"
-                        step="0.01"
                         disabled={!row.checked}
-                        value={centsToInput(row.amountCents)}
-                        onChange={(e) => {
-                          const value = parseMoneyInput(e.target.value);
+                        cents={row.amountCents}
+                        onCents={(value) => {
                           setManual(true);
                           setRows((prev) => prev.map((r, i) => (i === index ? { ...r, amountCents: value } : r)));
                         }}
