@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import type { DocumentDoc } from '../types';
-import { useAuth } from '../auth';
-import { formatDate, relativeDue } from '../lib/format';
-import { Link, useQueryParam, useRouter } from '../lib/router';
-import { Button, Card, EmptyState, Icon, Money, Segmented, Spinner, StatusBadge } from '../ui';
+import { CURRENCIES, formatDate, relativeDue } from '../lib/format';
+import { useViewCurrency } from '../lib/currency';
+import { useQueryParam, useRouter } from '../lib/router';
+import { Button, Card, EmptyState, Icon, Money, Segmented, SkeletonRows, StatusBadge } from '../ui';
 import { DocumentEditor } from '../components/DocumentEditor';
 
 type StatusFilter = 'all' | 'open' | 'overdue' | 'draft' | 'paid';
@@ -19,8 +19,8 @@ interface ListResponse {
 export function Documents({ kind }: { kind: 'invoice' | 'bill' }) {
   const isInvoice = kind === 'invoice';
   const base = isInvoice ? '/invoices' : '/bills';
-  const { settings } = useAuth();
-  const currency = settings?.currency ?? 'USD';
+  const { currency, setCurrency } = useViewCurrency();
+  const otherCurrency = CURRENCIES.find((c) => c !== currency) ?? currency;
   const { navigate } = useRouter();
   const newParam = useQueryParam('new');
 
@@ -39,13 +39,15 @@ export function Documents({ kind }: { kind: 'invoice' | 'bill' }) {
     setLoading(true);
     try {
       const res = await api.get<ListResponse>(
-        `${base}?status=${status}&q=${encodeURIComponent(debounced)}&limit=${limit}&offset=${page * limit}`,
+        `${base}?status=${status}&q=${encodeURIComponent(debounced)}&limit=${limit}&offset=${page * limit}&currency=${currency}`,
       );
       setData(res);
     } finally {
       setLoading(false);
     }
-  }, [base, status, debounced, page]);
+  }, [base, status, debounced, page, currency]);
+
+  useEffect(() => { setPage(0); }, [currency]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -72,7 +74,7 @@ export function Documents({ kind }: { kind: 'invoice' | 'bill' }) {
         <div className="stack" style={{ gap: 2 }}>
           <h1>{isInvoice ? 'Receivables' : 'Payables'}</h1>
           <div className="muted small">
-            {isInvoice ? 'Invoices you have issued to customers' : 'Vendor bills awaiting approval and payment'}
+            {isInvoice ? 'Invoices you have issued to customers' : 'Vendor bills awaiting approval and payment'} · showing {currency}
           </div>
         </div>
         <Button variant="primary" onClick={() => { setEditing(null); setEditorOpen(true); }}>
@@ -108,14 +110,37 @@ export function Documents({ kind }: { kind: 'invoice' | 'bill' }) {
         </div>
       </div>
 
-      <Card>
-        {loading && !data ? <Spinner /> : totals.items.length === 0 ? (
-          <EmptyState
-            icon={isInvoice ? 'invoice' : 'bill'}
-            title={`No ${isInvoice ? 'invoices' : 'bills'} found`}
-            body={search ? 'Try a different search term.' : `Create your first ${isInvoice ? 'invoice' : 'bill'} to get started.`}
-            action={<Button variant="primary" onClick={() => { setEditing(null); setEditorOpen(true); }}><Icon name="plus" size={15} /> New {isInvoice ? 'invoice' : 'bill'}</Button>}
-          />
+      <Card className={loading && data ? 'is-refreshing' : ''}>
+        {loading && !data ? <SkeletonRows rows={8} columns={6} /> : totals.items.length === 0 ? (
+          search || status !== 'all' ? (
+            <EmptyState
+              icon="search"
+              title={`No ${currency} ${isInvoice ? 'invoices' : 'bills'} match`}
+              body={search ? `Nothing matches “${search}”. Try a number, reference or ${isInvoice ? 'customer' : 'vendor'} name.` : 'Nothing in this status right now.'}
+              action={(
+                <div className="row gap-8 wrap" style={{ justifyContent: 'center' }}>
+                  <Button onClick={() => { setSearch(''); setStatus('all'); }}>Clear filters</Button>
+                  <Button variant="ghost" onClick={() => setCurrency(otherCurrency)}>Look in {otherCurrency}</Button>
+                </div>
+              )}
+            />
+          ) : (
+            <EmptyState
+              icon={isInvoice ? 'invoice' : 'bill'}
+              title={`No ${currency} ${isInvoice ? 'invoices' : 'bills'} yet`}
+              body={isInvoice
+                ? `Draft your first ${currency} invoice — totals, tax and aging are worked out for you.`
+                : `Add a ${currency} vendor bill to start planning what you owe and when.`}
+              action={(
+                <div className="row gap-8 wrap" style={{ justifyContent: 'center' }}>
+                  <Button variant="primary" onClick={() => { setEditing(null); setEditorOpen(true); }}>
+                    <Icon name="plus" size={15} /> {isInvoice ? 'Draft your first invoice' : 'Add your first bill'}
+                  </Button>
+                  <Button variant="ghost" onClick={() => setCurrency(otherCurrency)}>View {otherCurrency} {isInvoice ? 'invoices' : 'bills'}</Button>
+                </div>
+              )}
+            />
+          )
         ) : (
           <div className="table-wrap">
             <table className="table table-stack">
@@ -152,9 +177,9 @@ export function Documents({ kind }: { kind: 'invoice' | 'bill' }) {
                       <td className="muted small nowrap">{formatDate(doc.issueDate)}</td>
                       <td className={due.tone === 'neg' ? 'neg small nowrap' : 'muted small nowrap'}>{formatDate(doc.dueDate)}<div className="tiny">{due.label}</div></td>
                       <td><StatusBadge status={doc.status} overdue={doc.isOverdue} /></td>
-                      <td className="num"><Money cents={doc.totalCents} currency={currency} /></td>
+                      <td className="num"><Money cents={doc.totalCents} currency={doc.currency} /></td>
                       <td className="num" style={{ fontWeight: 600 }}>
-                        <Money cents={doc.balanceCents} currency={currency} />
+                        <Money cents={doc.balanceCents} currency={doc.currency} />
                       </td>
                       <td className="cell-actions"><Icon name="chevronRight" size={15} /></td>
                     </tr>

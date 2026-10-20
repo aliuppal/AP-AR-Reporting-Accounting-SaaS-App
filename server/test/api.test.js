@@ -225,6 +225,79 @@ test('reports produce balanced series and CSV exports', async () => {
   assert.ok(body.startsWith('Contact,Current,1-30 days'));
 });
 
+test('PKR and USD documents, payments and reports never mix', async () => {
+  const contact = (await api('/api/contacts', {
+    method: 'POST',
+    body: { type: 'customer', name: `Currency Test ${Date.now()}` },
+  })).data;
+
+  const pkr = await api('/api/invoices', {
+    method: 'POST',
+    body: { contactId: contact.id, issueDate: '2026-03-01', currency: 'pkr', lines: [{ description: 'Retainer', quantity: 1, unitPriceCents: 5_000_000 }] },
+  });
+  assert.equal(pkr.status, 201);
+  assert.equal(pkr.data.currency, 'PKR');
+  const usd = await api('/api/invoices', {
+    method: 'POST',
+    body: { contactId: contact.id, issueDate: '2026-03-01', currency: 'USD', lines: [{ description: 'Hosting', quantity: 1, unitPriceCents: 20_000 }] },
+  });
+  assert.equal(usd.data.currency, 'USD');
+
+  const rejected = await api('/api/invoices', {
+    method: 'POST',
+    body: { contactId: contact.id, issueDate: '2026-03-01', currency: 'EUR', lines: [{ description: 'x', quantity: 1, unitPriceCents: 100 }] },
+  });
+  assert.equal(rejected.status, 400);
+
+  // A USD payment cannot settle a PKR invoice.
+  const crossed = await api('/api/payments', {
+    method: 'POST',
+    body: {
+      direction: 'in', contactId: contact.id, date: '2026-03-02', amountCents: 20_000, currency: 'USD',
+      allocations: [{ docType: 'invoice', docId: pkr.data.id, amountCents: 20_000 }],
+    },
+  });
+  assert.equal(crossed.status, 400);
+  assert.match(crossed.data.error, /PKR/);
+
+  // Without a currency the payment takes the allocated document's currency.
+  const paid = await api('/api/payments', {
+    method: 'POST',
+    body: {
+      direction: 'in', contactId: contact.id, date: '2026-03-02', amountCents: 1_000_000,
+      allocations: [{ docType: 'invoice', docId: pkr.data.id, amountCents: 1_000_000 }],
+    },
+  });
+  assert.equal(paid.status, 201);
+  assert.equal(paid.data.currency, 'PKR');
+
+  // Auto-apply only touches documents in the payment's currency.
+  const auto = await api('/api/payments', {
+    method: 'POST',
+    body: { direction: 'in', contactId: contact.id, date: '2026-03-03', amountCents: 20_000, currency: 'USD' },
+  });
+  assert.equal(auto.data.allocations.length, 1);
+  assert.equal(auto.data.allocations[0].docId, usd.data.id);
+
+  // Lists and aging are scoped to one currency.
+  const pkrList = await api(`/api/invoices?contactId=${contact.id}&currency=PKR`);
+  assert.deepEqual(pkrList.data.items.map((d) => d.currency), ['PKR']);
+  const allList = await api(`/api/invoices?contactId=${contact.id}&currency=all`);
+  assert.equal(allList.data.total, 2);
+  const aging = await api('/api/reports/aging?type=ar&currency=PKR&asOf=2026-03-31');
+  const row = aging.data.rows.find((r) => r.contactId === contact.id);
+  assert.equal(aging.data.currency, 'PKR');
+  assert.equal(row.total, 4_000_000);
+
+  // Currency cannot change once payments are applied.
+  const doc = pkr.data;
+  const change = await api(`/api/invoices/${doc.id}`, {
+    method: 'PUT',
+    body: { contactId: contact.id, issueDate: doc.issueDate, dueDate: doc.dueDate, currency: 'USD', lines: [{ description: 'Retainer', quantity: 1, unitPriceCents: 5_000_000 }] },
+  });
+  assert.equal(change.status, 409);
+});
+
 test('validation and guards return structured errors', async () => {
   const invalid = await api('/api/invoices', { method: 'POST', body: { contactId: 1, issueDate: 'nope', lines: [] } });
   assert.equal(invalid.status, 400);

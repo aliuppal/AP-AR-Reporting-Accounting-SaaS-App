@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api';
 import { useAuth } from '../auth';
 import type { Settings } from '../types';
-import { Button, Card, CardHead, Field, Icon, Spinner, useToast } from '../ui';
+import { Button, Card, CardHead, Field, Icon, Skeleton, useToast } from '../ui';
+import { CURRENCIES, CURRENCY_NAMES, isCurrency } from '../lib/format';
+import { useViewCurrency } from '../lib/currency';
 
-const CURRENCIES = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'AED', 'PKR', 'INR'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 function Chips({ values, onChange, placeholder }: { values: string[]; onChange: (next: string[]) => void; placeholder: string }) {
@@ -50,13 +51,20 @@ function Chips({ values, onChange, placeholder }: { values: string[]; onChange: 
 export function SettingsPage() {
   const { settings, refreshSettings, user, logout } = useAuth();
   const toast = useToast();
+  const view = useViewCurrency();
   const [form, setForm] = useState<Settings | null>(settings);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => { setForm(settings); }, [settings]);
 
-  if (!form) return <Spinner />;
+  if (!form) {
+    return (
+      <div className="card card-body stack" style={{ gap: 14 }} role="status" aria-label="Loading settings">
+        <Skeleton width={200} height={16} /><Skeleton height={38} radius={8} /><Skeleton height={38} radius={8} /><Skeleton width="60%" height={38} radius={8} />
+      </div>
+    );
+  }
 
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) => setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
 
@@ -80,6 +88,7 @@ export function SettingsPage() {
         paymentMethods: form.paymentMethods,
       });
       await refreshSettings();
+      if (isCurrency(form.currency)) view.setCurrency(form.currency);
       toast.push('Settings saved');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Unable to save settings');
@@ -117,9 +126,9 @@ export function SettingsPage() {
                   </Field>
                 </div>
                 <div className="col-4">
-                  <Field label="Currency">
-                    <select className="select" value={form.currency} onChange={(e) => set('currency', e.target.value)}>
-                      {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  <Field label="Default currency" hint="New invoices, bills and payments start in this currency">
+                    <select className="select" value={isCurrency(form.currency) ? form.currency : 'PKR'} onChange={(e) => set('currency', e.target.value)}>
+                      {CURRENCIES.map((c) => <option key={c} value={c}>{c} — {CURRENCY_NAMES[c]}</option>)}
                     </select>
                   </Field>
                 </div>

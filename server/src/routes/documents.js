@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { addDays, diffDays, isOverdue, today } from '../domain.js';
+import { addDays, CURRENCIES, diffDays, isOverdue, resolveCurrency, today } from '../domain.js';
 import { badRequest, conflict, notFound, pagination, parse } from '../http.js';
 
 const lineSchema = z.object({
@@ -19,6 +19,7 @@ const docSchema = z.object({
   notes: z.string().max(4000).optional().default(''),
   reference: z.string().max(120).optional().default(''),
   discountCents: z.coerce.number().int().min(0).max(1_000_000_000).optional().default(0),
+  currency: z.string().trim().toUpperCase().pipe(z.enum(CURRENCIES)).optional(),
   lines: z.array(lineSchema).min(1, 'At least one line item is required'),
 });
 
@@ -156,6 +157,14 @@ export function documentRouter(db, opts) {
       const i = params.length;
       clauses.push(`(number ILIKE $${i} OR reference ILIKE $${i} OR contact_id IN (SELECT id FROM contacts WHERE name ILIKE $${i}))`);
     }
+    // `currency=all` lists every document (e.g. a contact's history); anything else scopes the
+    // list and its balance totals to one currency so PKR and USD are never summed together.
+    const allCurrencies = req.query.currency === 'all';
+    const currency = await resolveCurrency(db, req.query.currency);
+    if (!allCurrencies) {
+      params.push(currency);
+      clauses.push(`currency = $${params.length}`);
+    }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
 
     const total = (await db.one(`SELECT COUNT(*)::int AS c FROM ${table} ${where}`, params)).c;
@@ -166,7 +175,8 @@ export function documentRouter(db, opts) {
     const aggregate = await db.one(
       `SELECT COALESCE(SUM(total_cents - paid_cents), 0)::int AS open,
               COALESCE(SUM(CASE WHEN due_date < CURRENT_DATE THEN total_cents - paid_cents ELSE 0 END), 0)::int AS overdue
-         FROM ${table} WHERE status IN ('open','partial')`,
+         FROM ${table} WHERE status IN ('open','partial') AND currency = $1`,
+      [currency],
     );
 
     res.json({
@@ -174,6 +184,7 @@ export function documentRouter(db, opts) {
       total,
       limit,
       offset,
+      currency,
       openBalanceCents: aggregate.open,
       overdueBalanceCents: aggregate.overdue,
     });
@@ -201,7 +212,7 @@ export function documentRouter(db, opts) {
         `INSERT INTO ${table} (number, contact_id, issue_date, due_date, status, currency, discount_cents, notes, reference, ${stampColumn})
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
         [
-          number, body.contactId, body.issueDate, dueDate, body.status, settings.currency,
+          number, body.contactId, body.issueDate, dueDate, body.status, body.currency ?? settings.currency,
           body.discountCents, body.notes, body.reference, body.status === 'open' ? new Date().toISOString() : null,
         ],
       );
@@ -223,14 +234,18 @@ export function documentRouter(db, opts) {
     const body = parse(docSchema, req.body);
     const dueDate = body.dueDate ?? addDays(body.issueDate, 30);
     if (dueDate < body.issueDate) throw badRequest('Due date must be on or after the issue date');
+    const currency = body.currency ?? existing.currency;
+    if (currency !== existing.currency && existing.paid_cents > 0) {
+      throw conflict('Remove applied payments before changing the currency of this document');
+    }
 
     await db.tx(async (client) => {
       const keepStatus = ['paid', 'partial'].includes(existing.status) ? existing.status : body.status;
       await client.query(
         `UPDATE ${table} SET contact_id = $1, issue_date = $2, due_date = $3, status = $4,
-                discount_cents = $5, notes = $6, reference = $7, updated_at = now()
-          WHERE id = $8`,
-        [body.contactId, body.issueDate, dueDate, keepStatus, body.discountCents, body.notes, body.reference, id],
+                discount_cents = $5, notes = $6, reference = $7, currency = $8, updated_at = now()
+          WHERE id = $9`,
+        [body.contactId, body.issueDate, dueDate, keepStatus, body.discountCents, body.notes, body.reference, currency, id],
       );
       await writeLines(client, id, body.lines);
       const totals = await db.recomputeDocumentTotals(client, table, id);

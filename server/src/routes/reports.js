@@ -1,16 +1,17 @@
 import { Router } from 'express';
-import { AGING_BUCKETS, agingBucket, diffDays, endOfMonth, monthKey, monthsBetween, startOfMonth, toCsv, today } from '../domain.js';
+import { AGING_BUCKETS, agingBucket, diffDays, endOfMonth, monthKey, monthsBetween, resolveCurrency, startOfMonth, toCsv, today } from '../domain.js';
 
 const round = (n) => Math.round(n);
 
-export async function agingRows(db, type, asOf) {
+export async function agingRows(db, type, asOf, currency) {
   const table = type === 'ar' ? 'invoices' : 'bills';
   const docs = await db.many(
     `SELECT d.*, c.name AS contact_name, c.company AS contact_company
        FROM ${table} d JOIN contacts c ON c.id = d.contact_id
       WHERE d.status IN ('open','partial') AND d.issue_date <= $1 AND d.total_cents > d.paid_cents
+        AND d.currency = $2
       ORDER BY d.due_date`,
-    [asOf],
+    [asOf, currency],
   );
 
   const map = new Map();
@@ -45,6 +46,7 @@ export async function agingRows(db, type, asOf) {
   return {
     type,
     asOf,
+    currency,
     buckets: AGING_BUCKETS,
     rows,
     totals,
@@ -54,14 +56,14 @@ export async function agingRows(db, type, asOf) {
   };
 }
 
-export async function cashFlow(db, from, to) {
+export async function cashFlow(db, from, to, currency) {
   const months = monthsBetween(from, to);
   const rows = await db.many(
     `SELECT direction, to_char(date, 'YYYY-MM') AS period, SUM(amount_cents)::int AS total
        FROM payments
-      WHERE date >= $1 AND date <= $2
+      WHERE date >= $1 AND date <= $2 AND currency = $3
       GROUP BY direction, period`,
-    [startOfMonth(from), endOfMonth(to)],
+    [startOfMonth(from), endOfMonth(to), currency],
   );
   const byKey = new Map(rows.map((r) => [`${r.direction}:${r.period}`, r.total]));
   let running = 0;
@@ -76,6 +78,7 @@ export async function cashFlow(db, from, to) {
   return {
     from,
     to,
+    currency,
     series,
     totals: {
       inflowCents: series.reduce((s, r) => s + r.inflowCents, 0),
@@ -85,30 +88,30 @@ export async function cashFlow(db, from, to) {
   };
 }
 
-export async function profitLoss(db, from, to) {
+export async function profitLoss(db, from, to, currency) {
   const months = monthsBetween(from, to);
 
   const [revenueLines, expenseLines, discounts] = await Promise.all([
     db.many(
       `SELECT to_char(d.issue_date, 'YYYY-MM') AS period, l.category, SUM(l.amount_cents)::int AS amount
          FROM invoice_lines l JOIN invoices d ON d.id = l.invoice_id
-        WHERE d.status NOT IN ('draft','void') AND d.issue_date >= $1 AND d.issue_date <= $2
+        WHERE d.status NOT IN ('draft','void') AND d.issue_date >= $1 AND d.issue_date <= $2 AND d.currency = $3
         GROUP BY period, l.category`,
-      [from, to],
+      [from, to, currency],
     ),
     db.many(
       `SELECT to_char(d.issue_date, 'YYYY-MM') AS period, l.category, SUM(l.amount_cents)::int AS amount
          FROM bill_lines l JOIN bills d ON d.id = l.bill_id
-        WHERE d.status NOT IN ('draft','void') AND d.issue_date >= $1 AND d.issue_date <= $2
+        WHERE d.status NOT IN ('draft','void') AND d.issue_date >= $1 AND d.issue_date <= $2 AND d.currency = $3
         GROUP BY period, l.category`,
-      [from, to],
+      [from, to, currency],
     ),
     db.many(
       `SELECT to_char(issue_date, 'YYYY-MM') AS period, SUM(discount_cents)::int AS amount
          FROM invoices
-        WHERE status NOT IN ('draft','void') AND issue_date >= $1 AND issue_date <= $2
+        WHERE status NOT IN ('draft','void') AND issue_date >= $1 AND issue_date <= $2 AND currency = $3
         GROUP BY period`,
-      [from, to],
+      [from, to, currency],
     ),
   ]);
 
@@ -141,6 +144,7 @@ export async function profitLoss(db, from, to) {
   return {
     from,
     to,
+    currency,
     series,
     revenueByCategory: categoryTotals(revenueLines),
     expenseByCategory: categoryTotals(expenseLines),
@@ -154,7 +158,7 @@ export async function profitLoss(db, from, to) {
   };
 }
 
-export async function summary(db, asOf = today()) {
+export async function summary(db, asOf = today(), currency) {
   const yearStart = `${asOf.slice(0, 4)}-01-01`;
 
   const [openAR, openAP, revenueYtd, expenseYtd, cashIn30, cashOut30, rev90, exp90] = await Promise.all([
@@ -162,36 +166,36 @@ export async function summary(db, asOf = today()) {
       `SELECT COALESCE(SUM(total_cents - paid_cents), 0)::int AS total,
               COALESCE(SUM(CASE WHEN due_date < $1 THEN total_cents - paid_cents ELSE 0 END), 0)::int AS overdue,
               COUNT(*)::int AS docs
-         FROM invoices WHERE status IN ('open','partial')`, [asOf]),
+         FROM invoices WHERE status IN ('open','partial') AND currency = $2`, [asOf, currency]),
     db.one(
       `SELECT COALESCE(SUM(total_cents - paid_cents), 0)::int AS total,
               COALESCE(SUM(CASE WHEN due_date < $1 THEN total_cents - paid_cents ELSE 0 END), 0)::int AS overdue,
               COUNT(*)::int AS docs
-         FROM bills WHERE status IN ('open','partial')`, [asOf]),
+         FROM bills WHERE status IN ('open','partial') AND currency = $2`, [asOf, currency]),
     db.one(
       `SELECT COALESCE(SUM(l.amount_cents), 0)::int AS s FROM invoice_lines l
          JOIN invoices d ON d.id = l.invoice_id
-        WHERE d.status NOT IN ('draft','void') AND d.issue_date BETWEEN $1 AND $2`, [yearStart, asOf]),
+        WHERE d.status NOT IN ('draft','void') AND d.issue_date BETWEEN $1 AND $2 AND d.currency = $3`, [yearStart, asOf, currency]),
     db.one(
       `SELECT COALESCE(SUM(l.amount_cents), 0)::int AS s FROM bill_lines l
          JOIN bills d ON d.id = l.bill_id
-        WHERE d.status NOT IN ('draft','void') AND d.issue_date BETWEEN $1 AND $2`, [yearStart, asOf]),
+        WHERE d.status NOT IN ('draft','void') AND d.issue_date BETWEEN $1 AND $2 AND d.currency = $3`, [yearStart, asOf, currency]),
     db.one(
       `SELECT COALESCE(SUM(amount_cents), 0)::int AS s FROM payments
-        WHERE direction = 'in' AND date > ($1::date - INTERVAL '30 days')`, [asOf]),
+        WHERE direction = 'in' AND date > ($1::date - INTERVAL '30 days') AND currency = $2`, [asOf, currency]),
     db.one(
       `SELECT COALESCE(SUM(amount_cents), 0)::int AS s FROM payments
-        WHERE direction = 'out' AND date > ($1::date - INTERVAL '30 days')`, [asOf]),
+        WHERE direction = 'out' AND date > ($1::date - INTERVAL '30 days') AND currency = $2`, [asOf, currency]),
     db.one(
       `SELECT COALESCE(SUM(l.amount_cents), 0)::int AS s FROM invoice_lines l
          JOIN invoices d ON d.id = l.invoice_id
         WHERE d.status NOT IN ('draft','void')
-          AND d.issue_date > ($1::date - INTERVAL '90 days') AND d.issue_date <= $1::date`, [asOf]),
+          AND d.issue_date > ($1::date - INTERVAL '90 days') AND d.issue_date <= $1::date AND d.currency = $2`, [asOf, currency]),
     db.one(
       `SELECT COALESCE(SUM(l.amount_cents), 0)::int AS s FROM bill_lines l
          JOIN bills d ON d.id = l.bill_id
         WHERE d.status NOT IN ('draft','void')
-          AND d.issue_date > ($1::date - INTERVAL '90 days') AND d.issue_date <= $1::date`, [asOf]),
+          AND d.issue_date > ($1::date - INTERVAL '90 days') AND d.issue_date <= $1::date AND d.currency = $2`, [asOf, currency]),
   ]);
 
   const dso = rev90.s > 0 ? Math.round((openAR.total / (rev90.s / 90)) * 10) / 10 : 0;
@@ -199,6 +203,7 @@ export async function summary(db, asOf = today()) {
 
   return {
     asOf,
+    currency,
     receivableCents: openAR.total,
     receivableOverdueCents: openAR.overdue,
     payableCents: openAP.total,
@@ -220,40 +225,41 @@ export function reportsRouter(db) {
   const router = Router();
 
   router.get('/summary', async (req, res) => {
-    res.json(await summary(db, req.query.asOf ?? today()));
+    res.json(await summary(db, req.query.asOf ?? today(), await resolveCurrency(db, req.query.currency)));
   });
 
   router.get('/aging', async (req, res) => {
     const type = req.query.type === 'ap' ? 'ap' : 'ar';
-    res.json(await agingRows(db, type, req.query.asOf ?? today()));
+    res.json(await agingRows(db, type, req.query.asOf ?? today(), await resolveCurrency(db, req.query.currency)));
   });
 
   router.get('/profit-loss', async (req, res) => {
     const to = req.query.to ?? today();
     const from = req.query.from ?? `${to.slice(0, 4)}-01-01`;
-    res.json(await profitLoss(db, from, to));
+    res.json(await profitLoss(db, from, to, await resolveCurrency(db, req.query.currency)));
   });
 
   router.get('/cash-flow', async (req, res) => {
     const to = req.query.to ?? today();
     const from = req.query.from ?? startOfMonth(monthKey(to));
-    res.json(await cashFlow(db, from, to));
+    res.json(await cashFlow(db, from, to, await resolveCurrency(db, req.query.currency)));
   });
 
   router.get('/contact-balances', async (req, res) => {
     const type = req.query.type === 'ap' ? 'ap' : 'ar';
-    res.json(await agingRows(db, type, req.query.asOf ?? today()));
+    res.json(await agingRows(db, type, req.query.asOf ?? today(), await resolveCurrency(db, req.query.currency)));
   });
 
   router.get('/export', async (req, res) => {
     const report = String(req.query.report ?? 'ar-aging');
     const asOf = req.query.asOf ?? today();
+    const currency = await resolveCurrency(db, req.query.currency);
     let csv = '';
     let filename = 'report.csv';
 
     if (report === 'ar-aging' || report === 'ap-aging') {
       const type = report === 'ar-aging' ? 'ar' : 'ap';
-      const data = await agingRows(db, type, asOf);
+      const data = await agingRows(db, type, asOf, currency);
       csv = toCsv(
         [
           { key: 'contactName', label: 'Contact' },
@@ -274,11 +280,11 @@ export function reportsRouter(db) {
           total: row.total / 100,
         })),
       );
-      filename = `${report}-${asOf}.csv`;
+      filename = `${report}-${currency}-${asOf}.csv`;
     } else if (report === 'profit-loss') {
       const to = req.query.to ?? today();
       const from = req.query.from ?? `${to.slice(0, 4)}-01-01`;
-      const data = await profitLoss(db, from, to);
+      const data = await profitLoss(db, from, to, currency);
       csv = toCsv(
         [
           { key: 'period', label: 'Period' },
@@ -293,11 +299,11 @@ export function reportsRouter(db) {
           net: (s.netCents / 100).toFixed(2),
         })),
       );
-      filename = `profit-loss-${from}-to-${to}.csv`;
+      filename = `profit-loss-${currency}-${from}-to-${to}.csv`;
     } else if (report === 'cash-flow') {
       const to = req.query.to ?? today();
       const from = req.query.from ?? startOfMonth(monthKey(to));
-      const data = await cashFlow(db, from, to);
+      const data = await cashFlow(db, from, to, currency);
       csv = toCsv(
         [
           { key: 'period', label: 'Period' },
@@ -312,7 +318,7 @@ export function reportsRouter(db) {
           net: (s.netCents / 100).toFixed(2),
         })),
       );
-      filename = `cash-flow-${from}-to-${to}.csv`;
+      filename = `cash-flow-${currency}-${from}-to-${to}.csv`;
     } else {
       throw new Error(`Unknown report: ${report}`);
     }

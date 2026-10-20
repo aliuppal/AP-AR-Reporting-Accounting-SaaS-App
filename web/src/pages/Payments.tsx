@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '../api';
-import { useAuth } from '../auth';
 import type { Payment } from '../types';
 import { formatDate } from '../lib/format';
+import { useViewCurrency } from '../lib/currency';
 import { useQueryParam, useRouter } from '../lib/router';
-import { Button, Card, EmptyState, Icon, Modal, Money, Segmented, Spinner, useToast } from '../ui';
+import { Button, Card, EmptyState, Icon, Modal, Money, Segmented, SkeletonRows, useToast } from '../ui';
 
 type Filter = 'all' | 'in' | 'out';
 
 export function Payments() {
-  const { settings } = useAuth();
-  const currency = settings?.currency ?? 'USD';
+  const { currency } = useViewCurrency();
   const queryNew = useQueryParam('new');
   const { navigate } = useRouter();
   const toast = useToast();
@@ -27,11 +26,11 @@ export function Payments() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setData(await api.get(`/payments?direction=${filter}&q=${encodeURIComponent(debounced)}&limit=100`));
+      setData(await api.get(`/payments?direction=${filter}&q=${encodeURIComponent(debounced)}&limit=100&currency=${currency}`));
     } finally {
       setLoading(false);
     }
-  }, [filter, debounced]);
+  }, [filter, debounced, currency]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -68,7 +67,7 @@ export function Payments() {
       <div className="toolbar" style={{ justifyContent: 'space-between', marginBottom: 0 }}>
         <div className="stack" style={{ gap: 2 }}>
           <h1>Payments</h1>
-          <div className="muted small">Cash in from customers and cash out to vendors</div>
+          <div className="muted small">Cash in from customers and cash out to vendors · showing {currency}</div>
         </div>
         <div className="row gap-8">
           <Button onClick={() => setDirection('out')}><Icon name="arrowUp" size={14} /> Pay a bill</Button>
@@ -111,9 +110,21 @@ export function Payments() {
         </div>
       </div>
 
-      <Card>
-        {loading && !data ? <Spinner /> : items.length === 0 ? (
-          <EmptyState icon="payments" title="No payments recorded" body="Record a customer receipt or pay a vendor bill." action={<Button onClick={() => setDirection('in')}>Record payment</Button>} />
+      <Card className={loading && data ? 'is-refreshing' : ''}>
+        {loading && !data ? <SkeletonRows rows={8} columns={6} /> : items.length === 0 ? (
+          <EmptyState
+            icon="payments"
+            title={search ? 'No payments match' : `No ${currency} payments yet`}
+            body={search
+              ? `Nothing matches “${search}”.`
+              : 'Record money received from a customer or paid to a vendor — it settles their oldest open documents automatically.'}
+            action={search ? <Button onClick={() => setSearch('')}>Clear search</Button> : (
+              <div className="row gap-8 wrap" style={{ justifyContent: 'center' }}>
+                <Button variant="primary" onClick={() => setDirection('in')}><Icon name="arrowDown" size={14} /> Receive a payment</Button>
+                <Button onClick={() => setDirection('out')}><Icon name="arrowUp" size={14} /> Pay a bill</Button>
+              </div>
+            )}
+          />
         ) : (
           <div className="table-wrap">
             <table className="table table-stack">
@@ -148,8 +159,8 @@ export function Payments() {
                     <td className="small">
                       {p.allocations.length === 0 ? <span className="muted">Unapplied</span> : p.allocations.map((a) => a.docNumber).join(', ')}
                     </td>
-                    <td className="num" style={{ fontWeight: 600 }}><Money cents={p.amountCents} currency={currency} /></td>
-                    <td className="num">{p.unappliedCents > 0 ? <Money cents={p.unappliedCents} currency={currency} className="warn" /> : <span className="muted">—</span>}</td>
+                    <td className="num" style={{ fontWeight: 600 }}><Money cents={p.amountCents} currency={p.currency} /></td>
+                    <td className="num">{p.unappliedCents > 0 ? <Money cents={p.unappliedCents} currency={p.currency} className="warn" /> : <span className="muted">—</span>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -181,11 +192,11 @@ export function Payments() {
           <div className="row gap-24" style={{ marginBottom: 16 }}>
             <div className="stack" style={{ gap: 2 }}>
               <span className="tiny muted">Amount</span>
-              <Money cents={detail.amountCents} currency={currency} />
+              <Money cents={detail.amountCents} currency={detail.currency} />
             </div>
             <div className="stack" style={{ gap: 2 }}>
               <span className="tiny muted">Unapplied</span>
-              <Money cents={detail.unappliedCents} currency={currency} />
+              <Money cents={detail.unappliedCents} currency={detail.currency} />
             </div>
             <div className="stack" style={{ gap: 2 }}>
               <span className="tiny muted">Method</span>
@@ -207,7 +218,7 @@ export function Payments() {
                 <tr key={a.id}>
                   <td style={{ fontWeight: 550 }}>{a.docNumber}</td>
                   <td className="small muted">{a.docType === 'invoice' ? 'Invoice' : 'Bill'}</td>
-                  <td className="right"><Money cents={a.amountCents} currency={currency} /></td>
+                  <td className="right"><Money cents={a.amountCents} currency={detail.currency} /></td>
                 </tr>
               ))}
             </tbody>

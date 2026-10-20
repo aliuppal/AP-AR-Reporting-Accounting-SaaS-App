@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, downloadUrl, qs } from '../api';
-import { useAuth } from '../auth';
+import { useViewCurrency } from '../lib/currency';
 import type { AgingReport, CashFlow, ProfitLoss } from '../types';
 import { formatDate, moneyShort, monthLabel, startOfMonthISO, startOfYearISO, todayISO } from '../lib/format';
 import { useQueryParam, useRouter } from '../lib/router';
-import { AgingBar, BarPairChart, Button, Card, CardHead, EmptyState, Icon, Money, Segmented, Spinner } from '../ui';
+import { AgingBar, BarPairChart, Button, Card, CardHead, EmptyState, Icon, Money, Segmented, SkeletonKpis, SkeletonRows } from '../ui';
 
 type Tab = 'ar-aging' | 'ap-aging' | 'pl' | 'cash';
 
@@ -16,8 +16,7 @@ const TABS: { value: Tab; label: string }[] = [
 ];
 
 export function Reports() {
-  const { settings } = useAuth();
-  const currency = settings?.currency ?? 'USD';
+  const { currency } = useViewCurrency();
   const tabParam = useQueryParam('tab');
   const { navigate } = useRouter();
   const [tab, setTab] = useState<Tab>((TABS.some((t) => t.value === tabParam) ? tabParam : 'ar-aging') as Tab);
@@ -37,7 +36,7 @@ export function Reports() {
       <div className="toolbar" style={{ justifyContent: 'space-between', marginBottom: 0 }}>
         <div className="stack" style={{ gap: 2 }}>
           <h1>Reports</h1>
-          <div className="muted small">Aging, profitability and cash movement — always live from the ledger</div>
+          <div className="muted small">Aging, profitability and cash movement in {currency} — always live from the ledger</div>
         </div>
         <Segmented value={tab} onChange={changeTab} options={TABS} />
       </div>
@@ -65,11 +64,11 @@ function AgingView({ type, currency }: { type: 'ar' | 'ap'; currency: string }) 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setData(await api.get<AgingReport>(`/reports/aging${qs({ type, asOf })}`));
+      setData(await api.get<AgingReport>(`/reports/aging${qs({ type, asOf, currency })}`));
     } finally {
       setLoading(false);
     }
-  }, [type, asOf]);
+  }, [type, asOf, currency]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -83,12 +82,12 @@ function AgingView({ type, currency }: { type: 'ar' | 'ap'; currency: string }) 
           <input className="input input-sm" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} style={{ width: 150 }} />
         </label>
         <div className="row gap-8" style={{ marginLeft: 'auto' }}>
-          <ExportButton report={type === 'ar' ? 'ar-aging' : 'ap-aging'} params={{ asOf }} />
+          <ExportButton report={type === 'ar' ? 'ar-aging' : 'ap-aging'} params={{ asOf, currency }} />
           <Button size="sm" onClick={() => window.print()}><Icon name="print" size={14} /> Print</Button>
         </div>
       </div>
 
-      {loading && !data ? <Spinner /> : data ? (
+      {loading && !data ? <><SkeletonKpis /><div className="card"><SkeletonRows rows={6} columns={6} /></div></> : data ? (
         <>
           <div className="kpi-grid">
             <div className="card kpi">
@@ -120,7 +119,7 @@ function AgingView({ type, currency }: { type: 'ar' | 'ap'; currency: string }) 
           <Card>
             <CardHead title={`${label} aging`} sub={`As of ${formatDate(asOf, 'long')} · by contact`} />
             <div className="card-body" style={{ paddingBottom: 8 }}>
-              <AgingBar totals={data.totals} />
+              <AgingBar totals={data.totals} currency={currency} />
             </div>
             {data.rows.length === 0 ? (
               <EmptyState icon="check" title="Nothing outstanding" body={`No open ${label.toLowerCase()} for this date.`} />
@@ -187,11 +186,11 @@ function ProfitLossView({ currency }: { currency: string }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setData(await api.get<ProfitLoss>(`/reports/profit-loss${qs({ from, to })}`));
+      setData(await api.get<ProfitLoss>(`/reports/profit-loss${qs({ from, to, currency })}`));
     } finally {
       setLoading(false);
     }
-  }, [from, to]);
+  }, [from, to, currency]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -203,12 +202,12 @@ function ProfitLossView({ currency }: { currency: string }) {
         <label className="row gap-8 small muted">From <input className="input input-sm" type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: 150 }} /></label>
         <label className="row gap-8 small muted">To <input className="input input-sm" type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: 150 }} /></label>
         <div className="row gap-8" style={{ marginLeft: 'auto' }}>
-          <ExportButton report="profit-loss" params={{ from, to }} />
+          <ExportButton report="profit-loss" params={{ from, to, currency }} />
           <Button size="sm" onClick={() => window.print()}><Icon name="print" size={14} /> Print</Button>
         </div>
       </div>
 
-      {loading && !data ? <Spinner /> : data ? (
+      {loading && !data ? <><SkeletonKpis /><div className="card"><SkeletonRows rows={6} columns={6} /></div></> : data ? (
         <>
           <div className="kpi-grid">
             <div className="card kpi">
@@ -322,11 +321,11 @@ function CashFlowView({ currency }: { currency: string }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setData(await api.get<CashFlow>(`/reports/cash-flow${qs({ from, to })}`));
+      setData(await api.get<CashFlow>(`/reports/cash-flow${qs({ from, to, currency })}`));
     } finally {
       setLoading(false);
     }
-  }, [from, to]);
+  }, [from, to, currency]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -336,12 +335,12 @@ function CashFlowView({ currency }: { currency: string }) {
         <label className="row gap-8 small muted">From <input className="input input-sm" type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: 150 }} /></label>
         <label className="row gap-8 small muted">To <input className="input input-sm" type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: 150 }} /></label>
         <div className="row gap-8" style={{ marginLeft: 'auto' }}>
-          <ExportButton report="cash-flow" params={{ from, to }} />
+          <ExportButton report="cash-flow" params={{ from, to, currency }} />
           <Button size="sm" onClick={() => window.print()}><Icon name="print" size={14} /> Print</Button>
         </div>
       </div>
 
-      {loading && !data ? <Spinner /> : data ? (
+      {loading && !data ? <><SkeletonKpis /><div className="card"><SkeletonRows rows={6} columns={6} /></div></> : data ? (
         <>
           <div className="kpi-grid">
             <div className="card kpi">

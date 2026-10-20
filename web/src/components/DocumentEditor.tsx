@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '../api';
 import type { Contact, DocumentDoc, LineItem } from '../types';
-import { addDaysISO, todayISO } from '../lib/format';
-import { Button, Field, Icon, Modal, MoneyInput, useToast } from '../ui';
+import { addDaysISO, CURRENCIES, CURRENCY_NAMES, isCurrency, todayISO, type Currency } from '../lib/format';
+import { useViewCurrency } from '../lib/currency';
+import { Button, Field, Icon, Modal, Money, MoneyInput, useToast } from '../ui';
 
 interface Props {
   kind: 'invoice' | 'bill';
@@ -41,6 +42,9 @@ export function DocumentEditor({ kind, doc, presetContactId, onClose, onSaved }:
   const [reference, setReference] = useState(doc?.reference ?? '');
   const [notes, setNotes] = useState(doc?.notes ?? '');
   const [discountCents, setDiscountCents] = useState(doc?.discountCents ?? 0);
+  const view = useViewCurrency();
+  const [currency, setCurrency] = useState<Currency>(isCurrency(doc?.currency) ? doc.currency : view.currency);
+  const currencyLocked = !!doc && doc.paidCents > 0;
   const [lines, setLines] = useState<LineState[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -108,6 +112,7 @@ export function DocumentEditor({ kind, doc, presetContactId, onClose, onSaved }:
         reference,
         notes,
         discountCents,
+        currency,
         lines: lines
           .filter((l) => l.description.trim())
           .map<LineItem>((l) => ({
@@ -156,11 +161,24 @@ export function DocumentEditor({ kind, doc, presetContactId, onClose, onSaved }:
       {error ? <div className="banner banner-neg" style={{ marginBottom: 14 }}><Icon name="alert" size={15} />{error}</div> : null}
 
       <div className="form-grid">
-        <div className="col-6">
+        <div className="col-4">
           <Field label={isInvoice ? 'Customer' : 'Vendor'}>
             <select className="select" value={contactId || ''} onChange={(e) => setContactId(Number(e.target.value))}>
               <option value="">Select a {isInvoice ? 'customer' : 'vendor'}…</option>
               {contacts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </Field>
+        </div>
+        <div className="col-2">
+          <Field label="Currency" hint={currencyLocked ? 'Locked: payments applied' : undefined}>
+            <select
+              className="select"
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value as Currency)}
+              disabled={currencyLocked}
+              aria-label="Document currency"
+            >
+              {CURRENCIES.map((c) => <option key={c} value={c} title={CURRENCY_NAMES[c]}>{c}</option>)}
             </select>
           </Field>
         </div>
@@ -178,7 +196,7 @@ export function DocumentEditor({ kind, doc, presetContactId, onClose, onSaved }:
         <div className="col-12">
           <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
             <label style={{ fontSize: 12, fontWeight: 550, color: 'var(--ink-3)' }}>Line items</label>
-            <span className="tiny muted">Amounts in {settings?.currency ?? 'USD'}</span>
+            <span className="tiny muted">Amounts in {CURRENCY_NAMES[currency]} ({currency})</span>
           </div>
           <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflowX: 'auto' }}>
             <table className="line-table">
@@ -253,10 +271,10 @@ export function DocumentEditor({ kind, doc, presetContactId, onClose, onSaved }:
 
         <div className="col-5">
           <div className="totals">
-            <div className="totals-row"><span>Subtotal</span><span className="num">{(totals.subtotal / 100).toFixed(2)}</span></div>
-            <div className="totals-row"><span>Tax</span><span className="num">{(totals.tax / 100).toFixed(2)}</span></div>
-            {totals.discount > 0 ? <div className="totals-row"><span>Discount</span><span className="num neg">−{(totals.discount / 100).toFixed(2)}</span></div> : null}
-            <div className="totals-row grand"><span>Total</span><span className="num">{(totals.total / 100).toFixed(2)}</span></div>
+            <div className="totals-row"><span>Subtotal</span><Money cents={totals.subtotal} currency={currency} /></div>
+            <div className="totals-row"><span>Tax</span><Money cents={totals.tax} currency={currency} /></div>
+            {totals.discount > 0 ? <div className="totals-row"><span>Discount</span><span className="num neg">−<Money cents={totals.discount} currency={currency} /></span></div> : null}
+            <div className="totals-row grand"><span>Total</span><Money cents={totals.total} currency={currency} /></div>
           </div>
         </div>
       </div>

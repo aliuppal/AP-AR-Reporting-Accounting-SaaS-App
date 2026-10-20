@@ -4,13 +4,15 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { centsToInput, parseMoneyInput } from './lib/format';
+import { centsToInput, money, moneyShort, parseMoneyInput } from './lib/format';
+import { useViewCurrency } from './lib/currency';
 import type { DocStatus } from './types';
 
 /* ------------------------------- Icons ------------------------------- */
@@ -225,11 +227,46 @@ export function Modal({
     };
   }, [onClose]);
 
+  // On phones the dialog is a bottom sheet: dragging the handle down past a threshold
+  // dismisses it, a shorter drag springs back. Desktop never shows the handle.
+  const [dragY, setDragY] = useState(0);
+  const dragStart = useRef<number | null>(null);
+  const onDragStart = (e: React.PointerEvent) => {
+    dragStart.current = e.clientY;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const onDragMove = (e: React.PointerEvent) => {
+    if (dragStart.current === null) return;
+    setDragY(Math.max(0, e.clientY - dragStart.current));
+  };
+  const onDragEnd = () => {
+    if (dragStart.current === null) return;
+    dragStart.current = null;
+    if (dragY > 110) onClose();
+    else setDragY(0);
+  };
+
   // Rendered into <body>: a transformed ancestor (the route transition) would otherwise
   // become the containing block for position:fixed and the dialog could not scroll.
   return createPortal(
     <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className={`modal ${width === 'sm' ? 'modal-sm' : width === 'lg' ? '' : 'modal-md'}`} role="dialog" aria-modal="true" aria-label={title}>
+      <div
+        className={`modal ${width === 'sm' ? 'modal-sm' : width === 'lg' ? '' : 'modal-md'} ${dragY ? 'dragging' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        style={dragY ? { transform: `translateY(${dragY}px)` } : undefined}
+      >
+        <div
+          className="sheet-handle"
+          onPointerDown={onDragStart}
+          onPointerMove={onDragMove}
+          onPointerUp={onDragEnd}
+          onPointerCancel={onDragEnd}
+          aria-hidden="true"
+        >
+          <span />
+        </div>
         <div className="modal-head">
           <div className="stack grow" style={{ gap: 2 }}>
             <h2>{title}</h2>
@@ -283,18 +320,15 @@ export const useToast = () => useContext(ToastContext);
 /* ------------------------------- Charts ------------------------------- */
 
 export function BarPairChart({
-  data, height = 180, currency = 'USD',
+  data, height = 180, currency,
 }: {
   data: { label: string; a: number; b: number }[];
   height?: number;
   currency?: string;
 }) {
+  const view = useViewCurrency();
   const max = Math.max(1, ...data.flatMap((d) => [d.a, d.b]));
-  const fmt = (v: number) => {
-    const n = v / 100;
-    if (Math.abs(n) >= 1000) return `$${Math.round(n / 1000)}k`;
-    return `$${Math.round(n)}`;
-  };
+  const fmt = (v: number) => moneyShort(v, currency ?? view.currency);
   return (
     <div>
       <div className="bars" style={{ height }} role="img" aria-label="Revenue and expenses by month">
@@ -326,38 +360,64 @@ export function BarPairChart({
   );
 }
 
-export function AgingBar({ totals }: { totals: { current: number; d1_30: number; d31_60: number; d61_90: number; d90plus: number } }) {
-  const total = Object.values(totals).reduce((a, b) => a + b, 0) || 1;
-  const segs: { key: keyof typeof totals; label: string }[] = [
-    { key: 'current', label: 'Current' },
-    { key: 'd1_30', label: '1–30' },
-    { key: 'd31_60', label: '31–60' },
-    { key: 'd61_90', label: '61–90' },
-    { key: 'd90plus', label: '90+' },
-  ];
+type AgingKey = 'current' | 'd1_30' | 'd31_60' | 'd61_90' | 'd90plus';
+
+const AGING_SEGMENTS: { key: AgingKey; label: string; long: string }[] = [
+  { key: 'current', label: 'Current', long: 'Not yet due' },
+  { key: 'd1_30', label: '1–30', long: '1 to 30 days overdue' },
+  { key: 'd31_60', label: '31–60', long: '31 to 60 days overdue' },
+  { key: 'd61_90', label: '61–90', long: '61 to 90 days overdue' },
+  { key: 'd90plus', label: '90+', long: 'More than 90 days overdue' },
+];
+
+/**
+ * Each bucket has a colour *and* a shape + fill pattern, so the buckets stay distinct
+ * for colour-blind readers and in greyscale print: ● ▲ ■ ◆ ✕, solid → crosshatch.
+ */
+export function AgingMarker({ bucket, size = 10 }: { bucket: AgingKey; size?: number }) {
+  const s = size;
+  const shape = {
+    current: <circle cx={s / 2} cy={s / 2} r={s / 2 - 0.5} />,
+    d1_30: <path d={`M${s / 2} 0.5 L${s - 0.5} ${s - 0.5} L0.5 ${s - 0.5}Z`} />,
+    d31_60: <rect x="0.5" y="0.5" width={s - 1} height={s - 1} rx="1" />,
+    d61_90: <path d={`M${s / 2} 0 L${s} ${s / 2} L${s / 2} ${s} L0 ${s / 2}Z`} />,
+    d90plus: <path d={`M1 1 L${s - 1} ${s - 1} M${s - 1} 1 L1 ${s - 1}`} strokeWidth="2.2" fill="none" />,
+  }[bucket];
+  return (
+    <svg className={`aging-marker ${bucket}`} width={s} height={s} viewBox={`0 0 ${s} ${s}`} aria-hidden="true">
+      {shape}
+    </svg>
+  );
+}
+
+export function AgingBar({ totals, currency }: { totals: Record<AgingKey, number>; currency?: string }) {
+  const view = useViewCurrency();
+  const cur = currency ?? view.currency;
+  const total = AGING_SEGMENTS.reduce((sum, s) => sum + (totals[s.key] ?? 0), 0);
+  const summary = AGING_SEGMENTS.map((s) => `${s.long}: ${moneyShort(totals[s.key], cur)}`).join('; ');
   return (
     <div>
-      <div className="aging-bar">
-        {segs.map((s, i) => {
-          const pct = (totals[s.key] / total) * 100;
+      <div className="aging-bar" role="img" aria-label={total ? summary : 'Nothing outstanding'}>
+        {AGING_SEGMENTS.map((s, i) => {
+          const pct = total ? (totals[s.key] / total) * 100 : 0;
           return pct > 0
             ? (
               <div
                 key={s.key}
                 className={`aging-seg ${s.key}`}
                 style={{ width: `${pct}%`, animationDelay: `${i * 70}ms` }}
-                title={`${s.label}: ${moneyShort(totals[s.key])}`}
+                title={`${s.long}: ${moneyShort(totals[s.key], cur)}`}
               />
             )
             : null;
         })}
       </div>
       <div className="row wrap gap-12" style={{ marginTop: 10 }}>
-        {segs.map((s) => (
-          <span key={s.key} className="tiny muted row gap-4">
-            <i className="legend-dot" style={{ background: AGING_COLORS[s.key], marginRight: 0 }} />
+        {AGING_SEGMENTS.map((s) => (
+          <span key={s.key} className="tiny muted row gap-4" title={s.long}>
+            <AgingMarker bucket={s.key} />
             <span>{s.label}</span>
-            <strong className="num" style={{ color: 'var(--ink-3)' }}>{moneyShort(totals[s.key])}</strong>
+            <strong className="num" style={{ color: 'var(--ink-3)' }}>{moneyShort(totals[s.key], cur)}</strong>
           </span>
         ))}
       </div>
@@ -365,29 +425,44 @@ export function AgingBar({ totals }: { totals: { current: number; d1_30: number;
   );
 }
 
-const AGING_COLORS = {
-  current: '#3cffd0',
-  d1_30: '#ffd400',
-  d31_60: '#ff8a3d',
-  d61_90: '#ff5ca8',
-  d90plus: '#5200ff',
-};
-
-function moneyShort(cents: number) {
-  const value = cents / 100;
-  if (Math.abs(value) >= 1000) {
-    return `$${new Intl.NumberFormat('en-US', { maximumFractionDigits: value >= 100000 ? 0 : 1, notation: 'compact' }).format(value)}`;
-  }
-  return `$${Math.round(value)}`;
+/** Formats cents in the given currency, or the currency the workspace is being viewed in. */
+export function Money({ cents, currency, className = '', compact = false, tone }: { cents: number; currency?: string; className?: string; compact?: boolean; tone?: 'pos' | 'neg' }) {
+  const view = useViewCurrency();
+  const text = money(cents, currency ?? view.currency, { compact });
+  return <span className={`num ${tone ? tone : ''} ${className}`}>{text}</span>;
 }
 
-export function Money({ cents, currency = 'USD', className = '', compact = false, tone }: { cents: number; currency?: string; className?: string; compact?: boolean; tone?: 'pos' | 'neg' }) {
-  const value = (cents ?? 0) / 100;
-  const text = new Intl.NumberFormat('en-US', {
-    style: 'currency', currency,
-    ...(compact && Math.abs(value) >= 10000
-      ? { notation: 'compact', maximumFractionDigits: 1 }
-      : { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-  }).format(value);
-  return <span className={`num ${tone ? tone : ''} ${className}`}>{text}</span>;
+/* ------------------------------- Skeletons ------------------------------- */
+
+/** Shimmering placeholder sized like the content it stands in for (no layout jump on load). */
+export function Skeleton({ width = '100%', height = 12, radius = 6, style }: { width?: number | string; height?: number | string; radius?: number; style?: React.CSSProperties }) {
+  return <span className="skeleton" aria-hidden="true" style={{ width, height, borderRadius: radius, ...style }} />;
+}
+
+export function SkeletonKpis({ count = 4 }: { count?: number }) {
+  return (
+    <div className="kpi-grid" aria-hidden="true">
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="card kpi">
+          <Skeleton width="45%" height={10} />
+          <Skeleton width="70%" height={24} style={{ marginTop: 12 }} />
+          <Skeleton width="55%" height={10} style={{ marginTop: 10 }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function SkeletonRows({ rows = 6, columns = 5 }: { rows?: number; columns?: number }) {
+  return (
+    <div className="skeleton-rows" role="status" aria-label="Loading">
+      {Array.from({ length: rows }, (_, r) => (
+        <div key={r} className="skeleton-row" style={{ gridTemplateColumns: `1.4fr repeat(${columns - 1}, 1fr)` }}>
+          {Array.from({ length: columns }, (_, c) => (
+            <Skeleton key={c} width={c === 0 ? '80%' : c === columns - 1 ? '60%' : '70%'} height={c === 0 ? 13 : 11} style={c === columns - 1 ? { justifySelf: 'end' } : undefined} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
 }

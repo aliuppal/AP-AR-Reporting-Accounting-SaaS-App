@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { notFound, pagination, parse } from '../http.js';
+import { resolveCurrency } from '../domain.js';
 
 const contactSchema = z.object({
   type: z.enum(['customer', 'vendor', 'both']),
@@ -58,6 +59,8 @@ export function contactsRouter(db) {
       clauses.push(`(name ILIKE $${i} OR company ILIKE $${i} OR email ILIKE $${i})`);
     }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const currency = await resolveCurrency(db, req.query.currency);
+    const cur = params.length + 3;
 
     // One query with pre-aggregated balances: a per-contact loop would be 2N round trips,
     // which is painful against a managed Postgres.
@@ -72,18 +75,18 @@ export function contactsRouter(db) {
               SELECT contact_id,
                      SUM(total_cents - paid_cents) AS open_cents,
                      SUM(CASE WHEN due_date < CURRENT_DATE THEN total_cents - paid_cents ELSE 0 END) AS overdue_cents
-                FROM invoices WHERE status IN ('open','partial') GROUP BY contact_id
+                FROM invoices WHERE status IN ('open','partial') AND currency = $${cur} GROUP BY contact_id
          ) rec ON rec.contact_id = c.id
          LEFT JOIN (
               SELECT contact_id,
                      SUM(total_cents - paid_cents) AS open_cents,
                      SUM(CASE WHEN due_date < CURRENT_DATE THEN total_cents - paid_cents ELSE 0 END) AS overdue_cents
-                FROM bills WHERE status IN ('open','partial') GROUP BY contact_id
+                FROM bills WHERE status IN ('open','partial') AND currency = $${cur} GROUP BY contact_id
          ) pay ON pay.contact_id = c.id
          ${where}
         ORDER BY lower(c.name)
         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-      [...params, limit, offset],
+      [...params, limit, offset, currency],
     );
     const total = (await db.one(`SELECT COUNT(*)::int AS c FROM contacts ${where}`, params)).c;
 
@@ -93,31 +96,33 @@ export function contactsRouter(db) {
       overdue: row.rec_overdue + row.pay_overdue,
     }));
 
-    res.json({ items, total, limit, offset });
+    res.json({ items, total, limit, offset, currency });
   });
 
   router.get('/:id', async (req, res) => {
     const row = await db.one('SELECT * FROM contacts WHERE id = $1', [Number(req.params.id)]);
     if (!row) throw notFound('Contact not found');
+    const currency = await resolveCurrency(db, req.query.currency);
 
     const invoices = await db.many('SELECT * FROM invoices WHERE contact_id = $1 ORDER BY issue_date DESC LIMIT 20', [row.id]);
     const bills = await db.many('SELECT * FROM bills WHERE contact_id = $1 ORDER BY issue_date DESC LIMIT 20', [row.id]);
     const rec = await db.one(
       `SELECT COALESCE(SUM(total_cents - paid_cents), 0)::int AS open FROM invoices
-        WHERE contact_id = $1 AND status IN ('open','partial')`, [row.id],
+        WHERE contact_id = $1 AND status IN ('open','partial') AND currency = $2`, [row.id, currency],
     );
     const pay = await db.one(
       `SELECT COALESCE(SUM(total_cents - paid_cents), 0)::int AS open FROM bills
-        WHERE contact_id = $1 AND status IN ('open','partial')`, [row.id],
+        WHERE contact_id = $1 AND status IN ('open','partial') AND currency = $2`, [row.id, currency],
     );
 
     const brief = (d) => ({
       id: d.id, number: d.number, issueDate: d.issue_date, dueDate: d.due_date,
-      status: d.status, totalCents: d.total_cents, balanceCents: d.total_cents - d.paid_cents,
+      status: d.status, currency: d.currency, totalCents: d.total_cents, balanceCents: d.total_cents - d.paid_cents,
     });
 
     res.json({
       ...serialize(row, { receivable: rec.open, payable: pay.open }),
+      currency,
       invoices: invoices.map(brief),
       bills: bills.map(brief),
     });

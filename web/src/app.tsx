@@ -10,6 +10,8 @@ import { Contacts } from './pages/Contacts';
 import { Payments } from './pages/Payments';
 import { Reports } from './pages/Reports';
 import { SettingsPage } from './pages/Settings';
+import { CurrencyProvider, CurrencySwitch } from './lib/currency';
+import { CommandPalette, PALETTE_SHORTCUT, useCommandPalette } from './components/CommandPalette';
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: 'dashboard' },
@@ -64,6 +66,7 @@ function Shell() {
   const toast = useToast();
   const [menuOpen, setMenuOpen] = useState(false);
   const [today, setToday] = useState('');
+  const palette = useCommandPalette();
 
   useEffect(() => {
     setToday(new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }));
@@ -140,6 +143,12 @@ function Shell() {
           </div>
 
           <div className="topbar-actions">
+            <button type="button" className="palette-trigger" onClick={() => palette.setOpen(true)} aria-label="Open command palette">
+              <Icon name="search" size={14} />
+              <span>Search or jump to…</span>
+              <kbd>{PALETTE_SHORTCUT}</kbd>
+            </button>
+            <CurrencySwitch />
             <Link to="/invoices?new=1" className="btn btn-primary btn-sm hide-sm">
               <Icon name="plus" size={15} /> New invoice
             </Link>
@@ -158,7 +167,12 @@ function Shell() {
             <div className="brand-mark" style={{ width: 26, height: 26, fontSize: 13 }}>L</div>
             <span className="brand-name" style={{ color: 'var(--ink)', fontSize: 15 }}>Ledgerly</span>
           </div>
-          <div style={{ marginLeft: 'auto' }} className="avatar">{user?.name?.slice(0, 2).toUpperCase()}</div>
+          <div className="row gap-8" style={{ marginLeft: 'auto' }}>
+            <button type="button" className="icon-btn" onClick={() => palette.setOpen(true)} aria-label="Search">
+              <Icon name="search" size={18} />
+            </button>
+            <CurrencySwitch />
+          </div>
         </div>
 
         <main className="content">
@@ -202,18 +216,24 @@ function Shell() {
           </div>
         </div>
       ) : null}
+
+      {palette.open ? <CommandPalette onClose={() => palette.setOpen(false)} /> : null}
     </div>
   );
 }
 
 function Gate() {
-  const { user, loading } = useAuth();
+  const { user, settings, loading } = useAuth();
 
   if (loading) {
     return <div style={{ display: 'grid', placeItems: 'center', minHeight: '100vh' }}><Spinner /></div>;
   }
   if (!user) return <Login />;
-  return <Shell />;
+  return (
+    <CurrencyProvider initial={settings?.currency}>
+      <Shell />
+    </CurrencyProvider>
+  );
 }
 
 export function App() {

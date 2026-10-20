@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { badRequest, notFound, pagination, parse } from '../http.js';
+import { CURRENCIES, resolveCurrency } from '../domain.js';
 
 const allocationSchema = z.object({
   docType: z.enum(['invoice', 'bill']),
@@ -13,6 +14,7 @@ const paymentSchema = z.object({
   contactId: z.coerce.number().int().positive(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   amountCents: z.coerce.number().int().positive(),
+  currency: z.string().trim().toUpperCase().pipe(z.enum(CURRENCIES)).optional(),
   method: z.string().trim().max(60).optional().default('Bank transfer'),
   reference: z.string().trim().max(120).optional().default(''),
   notes: z.string().trim().max(2000).optional().default(''),
@@ -28,6 +30,7 @@ function shape(row, allocations, contact) {
     contactId: row.contact_id,
     contact: contact ?? null,
     date: row.date,
+    currency: row.currency,
     amountCents: row.amount_cents,
     allocatedCents: allocated,
     unappliedCents: row.amount_cents - allocated,
@@ -73,6 +76,10 @@ export function paymentsRouter(db) {
       const i = params.length;
       clauses.push(`(number ILIKE $${i} OR reference ILIKE $${i} OR contact_id IN (SELECT id FROM contacts WHERE name ILIKE $${i}))`);
     }
+    // Cash in/out totals are only meaningful within one currency.
+    const currency = await resolveCurrency(db, req.query.currency);
+    params.push(currency);
+    clauses.push(`currency = $${params.length}`);
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
 
     const total = (await db.one(`SELECT COUNT(*)::int AS c FROM payments ${where}`, params)).c;
@@ -115,7 +122,7 @@ export function paymentsRouter(db) {
     const contactMap = new Map(contacts.map((c) => [c.id, c]));
 
     const items = rows.map((row) => shape(row, allocMap.get(row.id) ?? [], contactMap.get(row.contact_id) ?? null));
-    res.json({ items, total, limit, offset, inflowCents: totals.inflow, outflowCents: totals.outflow });
+    res.json({ items, total, limit, offset, currency, inflowCents: totals.inflow, outflowCents: totals.outflow });
   });
 
   router.get('/:id', async (req, res) => {
@@ -142,11 +149,20 @@ export function paymentsRouter(db) {
 
     const id = await db.tx(async (client) => {
       const settings = (await client.query('SELECT * FROM settings WHERE id = 1')).rows[0];
+      // A payment takes the currency of the documents it settles; with no allocations
+      // it falls back to the requested currency, then the workspace default.
+      let currency = body.currency;
+      if (!currency && body.allocations?.length) {
+        const first = body.allocations[0];
+        const docTable = first.docType === 'invoice' ? 'invoices' : 'bills';
+        currency = (await client.query(`SELECT currency FROM ${docTable} WHERE id = $1`, [first.docId])).rows[0]?.currency;
+      }
+      currency = currency ?? settings.currency;
       const number = await db.nextNumber(client, 'payment', body.date, settings.payment_prefix);
       const inserted = await client.query(
-        `INSERT INTO payments (number, direction, contact_id, date, amount_cents, method, reference, notes)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-        [number, body.direction, body.contactId, body.date, body.amountCents, body.method, body.reference, body.notes],
+        `INSERT INTO payments (number, direction, contact_id, date, amount_cents, currency, method, reference, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+        [number, body.direction, body.contactId, body.date, body.amountCents, currency, body.method, body.reference, body.notes],
       );
       const paymentId = inserted.rows[0].id;
 
@@ -158,9 +174,9 @@ export function paymentsRouter(db) {
           const table = body.direction === 'in' ? 'invoices' : 'bills';
           const docs = (await client.query(
             `SELECT * FROM ${table}
-              WHERE contact_id = $1 AND status IN ('open','partial')
+              WHERE contact_id = $1 AND status IN ('open','partial') AND currency = $2
               ORDER BY due_date, id`,
-            [body.contactId],
+            [body.contactId, currency],
           )).rows;
           let remaining = body.amountCents;
           for (const doc of docs) {

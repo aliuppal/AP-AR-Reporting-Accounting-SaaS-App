@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import type { Dashboard as DashboardData, RecentDoc } from '../types';
-import { formatDate, moneyShort, relativeDue } from '../lib/format';
-import { AgingBar, BarPairChart, Card, CardHead, EmptyState, Icon, Money, Spinner, StatusBadge } from '../ui';
+import { formatDate, moneyShort, relativeDue, type Currency } from '../lib/format';
+import { useViewCurrency } from '../lib/currency';
+import { AgingBar, BarPairChart, Card, CardHead, EmptyState, Icon, Money, Skeleton, SkeletonKpis, SkeletonRows, StatusBadge } from '../ui';
 import { Link } from '../lib/router';
 
 function Kpi({ label, value, meta, accent, icon, delay = 0 }: { label: string; value: string; meta?: React.ReactNode; accent?: 'warn' | 'neg' | 'info'; icon?: string; delay?: number }) {
@@ -30,35 +31,81 @@ function RecentRow({ doc }: { doc: RecentDoc }) {
         <span className="list-sub">{doc.number} · {formatDate(doc.issueDate, 'short')}</span>
       </div>
       <div className="stack" style={{ alignItems: 'flex-end', gap: 3 }}>
-        <Money cents={doc.balanceCents || doc.totalCents} />
+        <Money cents={doc.balanceCents || doc.totalCents} currency={doc.currency} />
         <span className={`tiny ${due.tone === 'neg' ? 'neg' : 'muted'}`}>{due.label}</span>
       </div>
     </Link>
   );
 }
 
+function DashboardSkeleton() {
+  return (
+    <div className="stack" style={{ gap: 18 }} role="status" aria-label="Loading dashboard">
+      <div className="stack" style={{ gap: 8 }}>
+        <Skeleton width={260} height={22} />
+        <Skeleton width={320} height={11} />
+      </div>
+      <SkeletonKpis />
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.55fr) minmax(0, 1fr)', gap: 14 }} className="dash-split">
+        <div className="card card-body"><Skeleton height={190} radius={10} /></div>
+        <div className="card card-body stack" style={{ gap: 18 }}>
+          <Skeleton height={10} radius={99} /><Skeleton width="80%" height={10} />
+          <Skeleton height={10} radius={99} /><Skeleton width="70%" height={10} />
+        </div>
+      </div>
+      <div className="card"><SkeletonRows rows={4} columns={3} /></div>
+    </div>
+  );
+}
+
 export function Dashboard() {
-  const { user, settings } = useAuth();
+  const { user } = useAuth();
+  const { currency, setCurrency } = useViewCurrency();
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState('');
-  const currency = settings?.currency ?? 'USD';
 
   useEffect(() => {
-    api.get<DashboardData>('/dashboard')
-      .then(setData)
-      .catch((err) => setError(err.message));
-  }, []);
+    let cancelled = false;
+    setError('');
+    api.get<DashboardData>(`/dashboard?currency=${currency}`)
+      .then((res) => { if (!cancelled) setData(res); })
+      .catch((err) => { if (!cancelled) setError(err.message); });
+    return () => { cancelled = true; };
+  }, [currency]);
 
   if (error) return <div className="banner banner-neg">{error}</div>;
-  if (!data) return <Spinner />;
+  // Keep the previous figures on screen while a currency switch loads; skeleton only on first paint.
+  if (!data) return <DashboardSkeleton />;
 
   const { summary, aging, trend, cash } = data;
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   const firstName = user?.name?.split(' ')[0] ?? 'there';
+  const switching = data.currency !== currency;
+  const hasActivity = data.recentInvoices.length + data.recentBills.length > 0;
+  const otherWithData = data.currenciesInUse.find((c) => c.currency !== currency && c.documentCount > 0);
 
   return (
-    <div className="stack gap-16" style={{ gap: 18 }}>
+    <div className={`stack gap-16 ${switching ? 'is-refreshing' : ''}`} style={{ gap: 18 }} aria-busy={switching}>
+      {!hasActivity && !switching ? (
+        <div className="banner banner-info onboarding">
+          <Icon name="payments" size={16} />
+          <div className="grow">
+            <strong>No {currency} activity yet.</strong>{' '}
+            {otherWithData
+              ? `Your existing records are in ${otherWithData.currency}. Switch the view, or raise your first ${currency} invoice.`
+              : `Draft your first invoice or bill in ${currency} to see receivables, payables and cash flow here.`}
+          </div>
+          <div className="row gap-8 wrap">
+            {otherWithData ? (
+              <button type="button" className="btn btn-sm" onClick={() => setCurrency(otherWithData.currency as Currency)}>
+                Show {otherWithData.currency}
+              </button>
+            ) : null}
+            <Link to="/invoices?new=1" className="btn btn-primary btn-sm"><Icon name="plus" size={14} /> New {currency} invoice</Link>
+          </div>
+        </div>
+      ) : null}
       <div className="toolbar" style={{ justifyContent: 'space-between', marginBottom: 0 }}>
         <div className="stack" style={{ gap: 3 }}>
           <h1>{greeting}, {firstName}</h1>
@@ -106,7 +153,7 @@ export function Dashboard() {
         />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.55fr) minmax(0, 1fr)', gap: 14 }}>
+      <div className="dash-split" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.55fr) minmax(0, 1fr)', gap: 14 }}>
         <Card>
           <CardHead
             title="Revenue vs expenses"
@@ -164,10 +211,17 @@ export function Dashboard() {
         </Card>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 14 }}>
+      <div className="dash-three" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 14 }}>
         <Card>
           <CardHead title="Latest invoices" actions={<Link to="/invoices" className="btn btn-ghost btn-sm">All</Link>} />
-          {data.recentInvoices.length === 0 ? <EmptyState title="No invoices yet" /> : (
+          {data.recentInvoices.length === 0 ? (
+            <EmptyState
+              icon="invoice"
+              title={`No ${currency} invoices yet`}
+              body="Bill a customer to start tracking what you're owed."
+              action={<Link to="/invoices?new=1" className="btn btn-primary btn-sm"><Icon name="plus" size={14} /> Draft your first invoice</Link>}
+            />
+          ) : (
             <div className="list">
               {data.recentInvoices.slice(0, 5).map((doc) => <RecentRow key={`${doc.kind}-${doc.id}`} doc={doc} />)}
             </div>
@@ -176,7 +230,14 @@ export function Dashboard() {
 
         <Card>
           <CardHead title="Latest bills" actions={<Link to="/bills" className="btn btn-ghost btn-sm">All</Link>} />
-          {data.recentBills.length === 0 ? <EmptyState title="No bills yet" /> : (
+          {data.recentBills.length === 0 ? (
+            <EmptyState
+              icon="bill"
+              title={`No ${currency} bills yet`}
+              body="Record what you owe vendors to plan payables."
+              action={<Link to="/bills?new=1" className="btn btn-sm"><Icon name="plus" size={14} /> Add a bill</Link>}
+            />
+          ) : (
             <div className="list">
               {data.recentBills.slice(0, 5).map((doc) => <RecentRow key={`${doc.kind}-${doc.id}`} doc={doc} />)}
             </div>

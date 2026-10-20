@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
-import { useAuth } from '../auth';
+import { useViewCurrency } from '../lib/currency';
 import type { Contact } from '../types';
 import { initials } from '../lib/format';
-import { Button, Card, EmptyState, Icon, Money, Segmented, Spinner } from '../ui';
+import { Button, Card, EmptyState, Icon, Money, Segmented, SkeletonRows } from '../ui';
 import { ContactModal } from '../components/ContactModal';
 
 type Filter = 'all' | 'customer' | 'vendor';
 
 export function Contacts() {
-  const { settings } = useAuth();
-  const currency = settings?.currency ?? 'USD';
+  const { currency } = useViewCurrency();
   const [filter, setFilter] = useState<Filter>('all');
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -22,11 +21,11 @@ export function Contacts() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setData(await api.get<{ items: Contact[]; total: number }>(`/contacts?type=${filter}&q=${encodeURIComponent(debounced)}&limit=200`));
+      setData(await api.get<{ items: Contact[]; total: number }>(`/contacts?type=${filter}&q=${encodeURIComponent(debounced)}&limit=200&currency=${currency}`));
     } finally {
       setLoading(false);
     }
-  }, [filter, debounced]);
+  }, [filter, debounced, currency]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -42,7 +41,7 @@ export function Contacts() {
       <div className="toolbar" style={{ justifyContent: 'space-between', marginBottom: 0 }}>
         <div className="stack" style={{ gap: 2 }}>
           <h1>Contacts</h1>
-          <div className="muted small">Customers, vendors and their open balances</div>
+          <div className="muted small">Customers, vendors and their open {currency} balances</div>
         </div>
         <Button variant="primary" onClick={() => setCreating(true)}><Icon name="plus" size={15} /> New contact</Button>
       </div>
@@ -60,9 +59,16 @@ export function Contacts() {
         <span className="small muted" style={{ marginLeft: 'auto' }}>{data?.total ?? 0} contacts</span>
       </div>
 
-      <Card>
-        {loading && !data ? <Spinner /> : items.length === 0 ? (
-          <EmptyState icon="contacts" title="No contacts found" body="Add a customer or vendor to start invoicing." action={<Button onClick={() => setCreating(true)}>Add contact</Button>} />
+      <Card className={loading && data ? 'is-refreshing' : ''}>
+        {loading && !data ? <SkeletonRows rows={8} columns={6} /> : items.length === 0 ? (
+          <EmptyState
+            icon="contacts"
+            title={search ? 'No contacts match' : 'No contacts yet'}
+            body={search ? `Nothing matches “${search}”.` : 'Add the customers you invoice and the vendors you pay — their balances and payment terms show up here.'}
+            action={search
+              ? <Button onClick={() => setSearch('')}>Clear search</Button>
+              : <Button variant="primary" onClick={() => setCreating(true)}><Icon name="plus" size={15} /> Add your first contact</Button>}
+          />
         ) : (
           <div className="table-wrap">
             <table className="table table-stack">

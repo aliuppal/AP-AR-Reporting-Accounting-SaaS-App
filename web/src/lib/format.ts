@@ -3,29 +3,47 @@ export const todayISO = () => {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 };
 
-export function money(cents: number | null | undefined, currency = 'USD', opts: { compact?: boolean; sign?: boolean } = {}) {
+/** Currencies a document can be raised in; PKR is the workspace default. */
+export const CURRENCIES = ['PKR', 'USD'] as const;
+export type Currency = (typeof CURRENCIES)[number];
+export const DEFAULT_CURRENCY: Currency = 'PKR';
+
+export const CURRENCY_NAMES: Record<Currency, string> = {
+  PKR: 'Pakistani rupee',
+  USD: 'US dollar',
+};
+
+export function isCurrency(value: unknown): value is Currency {
+  return CURRENCIES.includes(String(value ?? '').toUpperCase() as Currency);
+}
+
+/** en-PK renders rupees as "Rs 1,234.00"; en-US keeps "$1,234.00". */
+const LOCALE: Record<string, string> = { PKR: 'en-PK', USD: 'en-US' };
+const localeFor = (currency: string) => LOCALE[currency] ?? 'en-US';
+
+export function money(cents: number | null | undefined, currency: string = DEFAULT_CURRENCY, opts: { compact?: boolean; sign?: boolean } = {}) {
   const value = (cents ?? 0) / 100;
   const abs = Math.abs(value);
-  const formatter = new Intl.NumberFormat('en-US', {
+  const formatter = new Intl.NumberFormat(localeFor(currency), {
     style: 'currency',
     currency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
   if (opts.compact && abs >= 10000) {
-    const compact = new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 1, notation: 'compact' });
+    const compact = new Intl.NumberFormat(localeFor(currency), { style: 'currency', currency, maximumFractionDigits: 1, notation: 'compact' });
     return compact.format(value);
   }
   const out = formatter.format(value);
   return opts.sign && value > 0 ? `+${out}` : out;
 }
 
-export function moneyShort(cents: number, currency = 'USD') {
+export function moneyShort(cents: number, currency: string = DEFAULT_CURRENCY) {
   const value = (cents ?? 0) / 100;
   if (Math.abs(value) >= 1000) {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: value >= 100000 ? 0 : 1, notation: 'compact' }).format(value);
+    return new Intl.NumberFormat(localeFor(currency), { style: 'currency', currency, maximumFractionDigits: Math.abs(value) >= 100000 ? 0 : 1, notation: 'compact' }).format(value);
   }
-  return money(cents, currency);
+  return new Intl.NumberFormat(localeFor(currency), { style: 'currency', currency, maximumFractionDigits: 0 }).format(value);
 }
 
 export function parseMoneyInput(value: string): number {

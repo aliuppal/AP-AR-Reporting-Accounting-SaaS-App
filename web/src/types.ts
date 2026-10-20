@@ -87,6 +87,7 @@ export interface Payment {
   contactId: number;
   contact: { id: number; name: string; company: string } | null;
   date: string;
+  currency: string;
   amountCents: number;
   allocatedCents: number;
   unappliedCents: number;
@@ -183,6 +184,9 @@ export interface CashFlow {
 }
 
 export interface Dashboard {
+  currency: string;
+  /** Which currencies hold any documents — lets an empty PKR view point at USD data. */
+  currenciesInUse: { currency: string; documentCount: number }[];
   summary: Summary;
   aging: { ar: AgingBucketTotals; ap: AgingBucketTotals };
   trend: ProfitLoss;
@@ -200,6 +204,7 @@ export interface RecentDoc {
   issueDate: string;
   dueDate: string;
   status: DocStatus;
+  currency: string;
   totalCents: number;
   balanceCents: number;
   daysOverdue: number;

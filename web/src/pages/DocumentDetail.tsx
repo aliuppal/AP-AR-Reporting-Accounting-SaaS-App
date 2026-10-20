@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../api';
 import { useAuth } from '../auth';
 import type { DocumentDoc } from '../types';
 import { formatDate, relativeDue } from '../lib/format';
 import { Link, useRouter } from '../lib/router';
-import { Button, Card, CardHead, Icon, Modal, Money, Spinner, StatusBadge, useToast } from '../ui';
+import { Button, Card, CardHead, Icon, Modal, Money, Skeleton, StatusBadge, useToast } from '../ui';
 import { DocumentEditor } from '../components/DocumentEditor';
 import { PaymentModal } from '../components/PaymentModal';
 
@@ -14,9 +14,22 @@ export function DocumentDetail({ kind, id }: { kind: 'invoice' | 'bill'; id: num
   const { settings } = useAuth();
   const { navigate } = useRouter();
   const toast = useToast();
-  const currency = settings?.currency ?? 'USD';
-
   const [doc, setDoc] = useState<DocumentDoc | null>(null);
+  const currency = doc?.currency ?? 'PKR';
+  // Celebrate the moment a payment settles the document (not when opening one that was already paid).
+  const prevStatus = useRef<string | null>(null);
+  const [justPaid, setJustPaid] = useState(false);
+  useEffect(() => {
+    if (!doc) return undefined;
+    const was = prevStatus.current;
+    prevStatus.current = doc.status;
+    if (was && was !== 'paid' && doc.status === 'paid') {
+      setJustPaid(true);
+      const timer = window.setTimeout(() => setJustPaid(false), 2400);
+      return () => window.clearTimeout(timer);
+    }
+    return undefined;
+  }, [doc]);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
   const [paying, setPaying] = useState(false);
@@ -40,7 +53,20 @@ export function DocumentDetail({ kind, id }: { kind: 'invoice' | 'bill'; id: num
       </div>
     );
   }
-  if (!doc) return <Spinner />;
+  if (!doc) {
+    return (
+      <div className="stack" style={{ gap: 16 }} role="status" aria-label="Loading document">
+        <div className="row gap-12"><Skeleton width={34} height={34} radius={10} /><div className="stack" style={{ gap: 8 }}><Skeleton width={180} height={18} /><Skeleton width={120} height={10} /></div></div>
+        <div className="doc-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 300px', gap: 16 }}>
+          <div className="card card-body stack" style={{ gap: 14 }}>
+            <Skeleton width="40%" height={16} /><Skeleton width="60%" height={11} /><Skeleton height={140} radius={10} />
+            <Skeleton width="35%" height={14} style={{ alignSelf: 'flex-end' }} />
+          </div>
+          <div className="card card-body stack" style={{ gap: 12 }}><Skeleton height={12} /><Skeleton height={12} /><Skeleton width="70%" height={12} /></div>
+        </div>
+      </div>
+    );
+  }
 
   const due = relativeDue(doc.dueDate, doc.status);
 
@@ -80,7 +106,8 @@ export function DocumentDetail({ kind, id }: { kind: 'invoice' | 'bill'; id: num
           <div className="stack" style={{ gap: 2 }}>
             <div className="row gap-8">
               <h1 style={{ fontSize: 20 }}>{doc.number}</h1>
-              <StatusBadge status={doc.status} overdue={doc.isOverdue} />
+              <span className={justPaid ? 'paid-pulse' : ''}><StatusBadge status={doc.status} overdue={doc.isOverdue} /></span>
+              <span className="badge badge-neutral" title="Document currency">{doc.currency}</span>
             </div>
             <div className="muted small">{isInvoice ? 'Invoice' : 'Bill'} · {doc.contact?.name}</div>
           </div>
@@ -97,7 +124,14 @@ export function DocumentDetail({ kind, id }: { kind: 'invoice' | 'bill'; id: num
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 300px', gap: 16, alignItems: 'start' }}>
+      {justPaid ? (
+        <div className="banner banner-pos paid-banner" role="status">
+          <span className="paid-check"><Icon name="check" size={15} /></span>
+          <strong>Paid in full.</strong> {doc.number} is settled — nothing left to {isInvoice ? 'collect' : 'pay'}.
+        </div>
+      ) : null}
+
+      <div className="doc-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 300px', gap: 16, alignItems: 'start' }}>
         <Card>
           <div className="card-body" style={{ padding: '26px 28px' }}>
             <div className="row" style={{ alignItems: 'flex-start', justifyContent: 'space-between', gap: 24 }}>
@@ -107,7 +141,7 @@ export function DocumentDetail({ kind, id }: { kind: 'invoice' | 'bill'; id: num
                   <strong style={{ fontSize: 16 }}>{settings?.companyName}</strong>
                 </div>
                 <span className="small muted">{settings?.legalName || settings?.companyName}</span>
-                <span className="small muted">{settings?.currency} · Net {settings?.defaultTermsDays} days</span>
+                <span className="small muted">{doc.currency} · Net {settings?.defaultTermsDays} days</span>
               </div>
               <div className="stack" style={{ alignItems: 'flex-end', gap: 3 }}>
                 <span className="tiny muted" style={{ textTransform: 'uppercase', letterSpacing: '0.08em' }}>{isInvoice ? 'Invoice' : 'Bill'}</span>
@@ -166,7 +200,7 @@ export function DocumentDetail({ kind, id }: { kind: 'invoice' | 'bill'; id: num
                 {doc.discountCents > 0 ? <div className="totals-row"><span>Discount</span><span className="num neg">−<Money cents={doc.discountCents} currency={currency} /></span></div> : null}
                 <div className="totals-row grand"><span>Total</span><Money cents={doc.totalCents} currency={currency} /></div>
                 {doc.paidCents > 0 ? <div className="totals-row"><span>Paid</span><span className="num pos">−<Money cents={doc.paidCents} currency={currency} /></span></div> : null}
-                <div className="totals-row" style={{ fontWeight: 650 }}><span>Balance due</span><Money cents={doc.balanceCents} currency={currency} /></div>
+                <div className={`totals-row ${justPaid ? 'settled' : ''}`} style={{ fontWeight: 650 }}><span>Balance due</span><Money cents={doc.balanceCents} currency={currency} /></div>
               </div>
             </div>
 
@@ -246,7 +280,7 @@ export function DocumentDetail({ kind, id }: { kind: 'invoice' | 'bill'; id: num
         <PaymentModal
           direction={isInvoice ? 'in' : 'out'}
           presetContactId={doc.contactId}
-          presetDoc={{ docType: isInvoice ? 'invoice' : 'bill', docId: doc.id }}
+          presetDoc={{ docType: isInvoice ? 'invoice' : 'bill', docId: doc.id, currency: doc.currency }}
           onClose={() => setPaying(false)}
           onSaved={() => { setPaying(false); load(); }}
         />

@@ -108,6 +108,28 @@ export function toCsv(headers, rows) {
   return `${head}\r\n${body}`;
 }
 
-export function money(cents, currency = 'USD') {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format((cents || 0) / 100);
+/** Currencies a document or payment can be raised in. PKR is the workspace default. */
+export const CURRENCIES = ['PKR', 'USD'];
+export const DEFAULT_CURRENCY = 'PKR';
+
+export function isCurrency(value) {
+  return CURRENCIES.includes(String(value ?? '').toUpperCase());
+}
+
+/**
+ * Reports never add PKR to USD: every aggregate is scoped to one currency. Use the
+ * `?currency=` query value when valid, otherwise the workspace default from settings.
+ */
+export async function resolveCurrency(db, requested) {
+  if (isCurrency(requested)) return String(requested).toUpperCase();
+  const row = await db.one('SELECT currency FROM settings WHERE id = 1');
+  return isCurrency(row?.currency) ? row.currency : DEFAULT_CURRENCY;
+}
+
+const MONEY_LOCALE = { PKR: 'en-PK', USD: 'en-US' };
+
+export function money(cents, currency = DEFAULT_CURRENCY) {
+  return new Intl.NumberFormat(MONEY_LOCALE[currency] ?? 'en-US', {
+    style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2,
+  }).format((cents || 0) / 100);
 }

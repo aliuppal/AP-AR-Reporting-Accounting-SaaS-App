@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { parse } from '../http.js';
+import { CURRENCIES } from '../domain.js';
 
 const settingsSchema = z.object({
   companyName: z.string().trim().min(1).max(120),
   legalName: z.string().trim().max(160).optional().default(''),
-  currency: z.string().trim().length(3),
+  currency: z.string().trim().toUpperCase().pipe(z.enum(CURRENCIES)),
   locale: z.string().trim().max(20).optional().default('en-US'),
   fiscalYearStartMonth: z.coerce.number().int().min(1).max(12),
   defaultTermsDays: z.coerce.number().int().min(0).max(365),
