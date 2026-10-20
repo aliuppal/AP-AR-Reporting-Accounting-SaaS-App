@@ -15,14 +15,15 @@ const watch = process.argv.includes('--watch');
 
 function copyStatic() {
   mkdirSync(outDir, { recursive: true });
-  cpSync(join(root, 'web', 'index.html'), join(outDir, 'index.html'));
+  // The marketing page is the real index so a static host serves it at "/" before
+  // any rewrite runs; the workspace shell lives at app.html and is routed by path.
+  cpSync(join(root, 'web', 'index.html'), join(outDir, 'app.html'));
   cpSync(join(root, 'web', 'styles.css'), join(outDir, 'styles.css'));
   cpSync(join(root, 'web', 'motion.css'), join(outDir, 'motion.css'));
   cpSync(join(root, 'web', 'theme-verge.css'), join(outDir, 'theme-verge.css'));
   cpSync(join(root, 'web', 'public'), outDir, { recursive: true });
-  // index.html lives at the root of dist and references /app.js
-  const html = readFileSync(join(outDir, 'index.html'), 'utf8');
-  writeFileSync(join(outDir, 'index.html'), html);
+  const landing = readFileSync(join(outDir, 'landing.html'), 'utf8');
+  writeFileSync(join(outDir, 'index.html'), landing);
 }
 
 async function build() {

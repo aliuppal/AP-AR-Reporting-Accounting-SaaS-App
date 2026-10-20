@@ -8,11 +8,31 @@ const SECRET_FILE = join(DATA_DIR, 'session.key');
 export const SESSION_COOKIE = 'ledgerly_session';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
 
+let cached = null;
+
+/**
+ * Session signing key. Locally it is generated once into data/session.key.
+ * Serverless filesystems are read-only and ephemeral, so a deployment must set
+ * SESSION_SECRET — otherwise every instance would sign with a different key.
+ */
 function secret() {
   if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
-  mkdirSync(DATA_DIR, { recursive: true });
-  if (!existsSync(SECRET_FILE)) writeFileSync(SECRET_FILE, randomBytes(48).toString('hex'), { mode: 0o600 });
-  return readFileSync(SECRET_FILE, 'utf8').trim();
+  if (cached) return cached;
+
+  try {
+    mkdirSync(DATA_DIR, { recursive: true });
+    if (!existsSync(SECRET_FILE)) writeFileSync(SECRET_FILE, randomBytes(48).toString('hex'), { mode: 0o600 });
+    cached = readFileSync(SECRET_FILE, 'utf8').trim();
+    return cached;
+  } catch (err) {
+    if (process.env.VERCEL) {
+      throw new Error(
+        'SESSION_SECRET is not set. Add it to the Vercel project environment variables '
+        + '(openssl rand -hex 48) so sessions survive across serverless instances.',
+      );
+    }
+    throw err;
+  }
 }
 
 export function hashPassword(password, salt = randomBytes(16).toString('hex')) {

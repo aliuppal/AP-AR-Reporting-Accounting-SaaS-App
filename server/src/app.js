@@ -49,7 +49,7 @@ export function createApp(db) {
 
   const dist = join(ROOT, 'web', 'dist');
   if (existsSync(dist)) {
-    const indexFile = join(dist, 'index.html');
+    const appFile = join(dist, 'app.html');
     const landingFile = join(dist, 'landing.html');
     app.use(express.static(dist, { index: false, maxAge: '1h', etag: true }));
 
@@ -57,13 +57,13 @@ export function createApp(db) {
     app.get('/', (req, res) => {
       const session = readSession(parseCookies(req.headers.cookie ?? '')[SESSION_COOKIE]);
       res.set('Cache-Control', 'no-cache');
-      res.sendFile(session && existsSync(indexFile) ? indexFile : landingFile);
+      res.sendFile(session && existsSync(appFile) ? appFile : landingFile);
     });
 
     // Explicit app entry so links from the landing page never depend on session state.
-    app.get(/^\/app(\/.*)?$/, (req, res) => res.sendFile(indexFile));
+    app.get(/^\/app(\/.*)?$/, (req, res) => res.sendFile(appFile));
 
-    app.get(/^(?!\/api).*/, (req, res) => res.sendFile(indexFile));
+    app.get(/^(?!\/api).*/, (req, res) => res.sendFile(appFile));
   } else {
     app.get('/', (req, res) => res.status(503).type('html').send(
       '<h1>Ledgerly API is running</h1><p>The web client has not been built yet. Run <code>npm run build</code>.</p>',

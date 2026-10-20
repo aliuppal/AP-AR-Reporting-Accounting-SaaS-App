@@ -14,7 +14,10 @@
     "test": "node --test --test-isolation=none \"server/test/*.test.js\"",
     "smoke": "node scripts/smoke.mjs",
     "typecheck": "tsc --noEmit",
-    "audit:motion": "node scripts/audit-motion.mjs"
+    "audit:motion": "node scripts/audit-motion.mjs",
+    "deploy": "vercel deploy --prod --yes",
+    "test:serverless": "node scripts/test-vercel.mjs",
+    "test:deploy": "node scripts/test-deploy.mjs"
   },
   "dependencies": {
     "express": "^5.3.0",

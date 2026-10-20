@@ -1,0 +1,100 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "npm run build",
+  "outputDirectory": "web/dist",
+  "installCommand": "npm install",
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 30,
+      "memory": 1024
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api"
+    },
+    {
+      "source": "/app",
+      "destination": "/app.html"
+    },
+    {
+      "source": "/app/(.*)",
+      "destination": "/app.html"
+    },
+    {
+      "source": "/invoices",
+      "destination": "/app.html"
+    },
+    {
+      "source": "/invoices/(.*)",
+      "destination": "/app.html"
+    },
+    {
+      "source": "/bills",
+      "destination": "/app.html"
+    },
+    {
+      "source": "/bills/(.*)",
+      "destination": "/app.html"
+    },
+    {
+      "source": "/contacts",
+      "destination": "/app.html"
+    },
+    {
+      "source": "/contacts/(.*)",
+      "destination": "/app.html"
+    },
+    {
+      "source": "/payments",
+      "destination": "/app.html"
+    },
+    {
+      "source": "/payments/(.*)",
+      "destination": "/app.html"
+    },
+    {
+      "source": "/reports",
+      "destination": "/app.html"
+    },
+    {
+      "source": "/reports/(.*)",
+      "destination": "/app.html"
+    },
+    {
+      "source": "/settings",
+      "destination": "/app.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/fonts/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/app.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600"
+        }
+      ]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        }
+      ]
+    }
+  ]
+}

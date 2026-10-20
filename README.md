@@ -39,6 +39,8 @@ npm run build              # bundles the React client into web/dist
 npm start                  # API + static client on http://127.0.0.1:4100
 ```
 
+**Deployed:** <https://ledgerly-six-topaz.vercel.app> — landing at `/`, workspace at `/app`.
+
 Open <http://127.0.0.1:4100> for the **landing page**, then **Open the app** (or go straight to
 <http://127.0.0.1:4100/app>) and sign in with the seeded test account:
 
@@ -275,6 +277,47 @@ The ledger lives in Postgres (developed against Neon, `us-east-2`). Configuratio
 Because the database is remote, page loads here run 0.6–2 s depending on round-trip time. The pool is
 pre-warmed at boot and list endpoints batch their reads, so a page costs a handful of queries rather
 than one per row.
+
+---
+
+## Deployment (Vercel)
+
+Production: **<https://ledgerly-six-topaz.vercel.app>** — project `ledgerly`, team
+`saas-customer-loyalitys-projects`. `npm run deploy` ships the current working tree.
+
+How it is wired:
+
+- **`api/index.js`** — the entire Express app behind one Node function. The pool and the app are created
+  once per warm lambda (`max: 3` connections), with migrations run lazily on first invocation.
+- **`vercel.json`** — `outputDirectory: web/dist`, `buildCommand: npm run build`, and rewrites:
+  `/api/(.*)` → the function; `/app`, `/invoices`, `/bills`, `/contacts`, `/payments`, `/reports`,
+  `/settings` (and their sub-paths) → `/app.html`; everything else is served statically.
+- **The `/` split** — the build emits `index.html` (the landing page) and `app.html` (the workspace
+  shell). A static host resolves `/` to `index.html` before rewrites run, so making the marketing page
+  the real index is what stops `/` from showing the app. Locally, Express still chooses per session:
+  landing for visitors, `app.html` for signed-in users.
+- **Session secret** — serverless filesystems are read-only and ephemeral, so `SESSION_SECRET` must be
+  set in Vercel (the app throws a clear error when it is missing there). Locally the key is generated
+  into `data/session.key`.
+
+Production environment variables:
+
+```
+DATABASE_URL      Neon pooled connection string (sslmode=require)
+SESSION_SECRET    96 hex chars — openssl rand -hex 48
+LEDGERLY_SEED     0   (the database is seeded deliberately, never on boot)
+```
+
+Verification, both repeatable:
+
+```bash
+npm run test:serverless   # boots api/index.js against a throwaway ledgerly_vercel_test database
+npm run test:deploy       # hits the live URL: landing, shell, assets, fonts, login, reports, 401s
+```
+
+Notes: cold starts cost 1–3 s on the first request after idle (Neon wake + TLS); the API is
+`Cache-Control: no-store` and fonts are immutable; preview deployments have no env vars configured, so
+they build but return 500 from `/api/*` until the same three variables are added to Preview.
 
 ---
 
