@@ -56,6 +56,7 @@ The database is created on first boot and seeded with ten months of a design stu
 | `npm run seed` | Seed an empty database (`-- --force` to reset) |
 | `npm run reset` | Delete and recreate the database with fresh demo data |
 | `npm run typecheck` | TypeScript check of the client (no emit) |
+| `npm run audit:motion` | Fails the build if any animation touches a layout/paint property |
 
 Environment variables: `PORT` (default `4100`), `HOST` (`127.0.0.1`), `LEDGERLY_DB` (database path),
 `LEDGERLY_DATA_DIR`, `LEDGERLY_SEED=0` (skip seeding).
@@ -142,6 +143,48 @@ npx cap open ios
 
 While developing against a local API from a device, uncomment `server.url` in `capacitor.config.ts`
 (`http://10.0.2.2:4100` for the Android emulator).
+
+---
+
+## Motion & animation
+
+Motion is layered on top of the UI as a separate stylesheet (`web/motion.css`) so the performance
+contract is visible in one place, built to the *60fps-animation* rules:
+
+- **Only `transform` and `opacity` animate.** Route changes, staggered rows/KPIs, charts, aging
+  segments, the mobile sheet and toasts are all compositor-only. Bars set their height once as data,
+  then grow with `scaleY`; aging segments grow with `scaleX` — no `height`/`width` is interpolated.
+- **Shadows fade, never animate.** Hover lift uses `::after` holding a pre-rasterised shadow and
+  animates only its `opacity`; `box-shadow` was removed from the button and input transitions.
+- **`will-change` is scoped** to the modal (short-lived, single instance) rather than applied broadly.
+- **Reduced motion is honoured twice**: a `prefers-reduced-motion: reduce` block collapses every
+  duration, and the landing page also skips its observer/parallax when motion is reduced.
+- **No layout thrashing**: the only JS-driven motion is the hero parallax on the landing page, which
+  batches a single rect read per pointer event and writes one `transform` inside `requestAnimationFrame`.
+
+`npm run audit:motion` enforces this mechanically — it parses every `transition` and `@keyframes` block
+in `web/styles.css`, `web/motion.css` and the landing page, and exits non-zero if a layout or paint
+property is animated:
+
+```
+Motion audit — 3 files, 15 transitions, 9 keyframe blocks
+No layout-thrashing properties animate. Compositor-only contract holds.
+```
+
+**Landing page** — <http://127.0.0.1:4100/landing.html> (also linked from the sign-in screen). One
+self-contained HTML file: scroll-reveal via `IntersectionObserver`, animated bars/aging, hero parallax,
+and an inline freeze harness for deterministic frames:
+
+```
+/landing.html?t=0.6      # pin every CSS animation/transition at 0.6s
+/landing.html?t=1.4      # settled state
+/landing.html?motion=off # final-state render, no motion (screenshot-friendly)
+```
+
+The harness reveals all content, then pauses each `getAnimations()` timeline and sets `currentTime`,
+so `?t=` frames are reproducible for screenshots. Verification in this environment was structural
+(jsdom render + freeze state + the CSS audit); a real browser is needed for pixel screenshots, since
+the sandbox blocks launching Chrome/Edge.
 
 ---
 

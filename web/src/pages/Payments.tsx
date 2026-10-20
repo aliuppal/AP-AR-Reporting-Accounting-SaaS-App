@@ -129,8 +129,13 @@ export function Payments() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((p) => (
-                  <tr key={p.id} className="clickable" onClick={() => setDetail(p)}>
+                {items.map((p, index) => (
+                  <tr
+                    key={p.id}
+                    className="clickable enter"
+                    style={{ '--enter-delay': `${Math.min(index, 14) * 22}ms` } as React.CSSProperties}
+                    onClick={() => setDetail(p)}
+                  >
                     <td>
                       <div className="row gap-8">
                         <span className={`badge ${p.direction === 'in' ? 'badge-in' : 'badge-out'}`}>{p.direction === 'in' ? 'IN' : 'OUT'}</span>

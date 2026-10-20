@@ -102,8 +102,12 @@ export function Login() {
           <div className="demo-note">
             <strong>Demo workspace</strong><br />
             demo@ledgerly.app · demo1234<br />
-            <span className="small">Seeded with 12 months of invoices, bills and payments.</span>
+            <span className="small">Seeded with 10 months of invoices, bills and payments.</span>
           </div>
+
+          <a href="/landing.html" className="small muted" style={{ textAlign: 'center' }}>
+            Not ready to sign in? Take the animated tour →
+          </a>
         </div>
       </div>
     </div>

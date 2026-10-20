@@ -161,7 +161,10 @@ function Shell() {
         </div>
 
         <main className="content">
-          <Routes />
+          {/* Keyed by route so each screen animates in once, on the compositor. */}
+          <div className="route" key={path}>
+            <Routes />
+          </div>
         </main>
 
         <nav className="mobile-nav" aria-label="Mobile">
@@ -180,7 +183,7 @@ function Shell() {
 
       {menuOpen ? (
         <div className="overlay" style={{ alignItems: 'flex-end', padding: 0 }} onMouseDown={(e) => { if (e.target === e.currentTarget) setMenuOpen(false); }}>
-          <div className="card" style={{ width: '100%', borderRadius: '16px 16px 0 0', padding: 14, paddingBottom: 'calc(14px + env(safe-area-inset-bottom))' }}>
+          <div className="card sheet" style={{ width: '100%', borderRadius: '16px 16px 0 0', padding: 14, paddingBottom: 'calc(14px + env(safe-area-inset-bottom))' }}>
             <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
               <strong style={{ fontSize: 15 }}>{settings?.companyName}</strong>
               <button type="button" className="icon-btn" onClick={() => setMenuOpen(false)} aria-label="Close"><Icon name="close" size={17} /></button>

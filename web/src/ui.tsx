@@ -253,12 +253,6 @@ export function BarPairChart({
   currency?: string;
 }) {
   const max = Math.max(1, ...data.flatMap((d) => [d.a, d.b]));
-  const width = 100;
-  const gap = 100 / data.length;
-  const barW = gap * 0.24;
-  const labelH = 20;
-  const chartH = height - labelH;
-  const ticks = [0, 0.5, 1];
   const fmt = (v: number) => {
     const n = v / 100;
     if (Math.abs(n) >= 1000) return `$${Math.round(n / 1000)}k`;
@@ -266,22 +260,21 @@ export function BarPairChart({
   };
   return (
     <div>
-      <svg className="chart" viewBox={`0 0 100 ${height}`} preserveAspectRatio="none" role="img" aria-label="Revenue and expenses by month" style={{ height }}>
-        {ticks.map((t) => (
-          <line key={t} x1="0" x2="100" y1={chartH - t * (chartH - 12)} y2={chartH - t * (chartH - 12)} stroke="#eff1f4" strokeWidth="0.5" />
+      <div className="bars" style={{ height }} role="img" aria-label="Revenue and expenses by month">
+        <div className="bars-grid" aria-hidden="true">
+          {[0, 0.5].map((t) => <span key={t} style={{ bottom: `${t * 100}%` }} />)}
+        </div>
+        {data.map((d, i) => (
+          <div
+            key={d.label}
+            className="bar-group"
+            title={`${d.label} · revenue ${fmt(d.a)} · expenses ${fmt(d.b)}`}
+          >
+            <div className="bar bar-a" style={{ height: `${Math.max((d.a / max) * 100, 0.8)}%`, animationDelay: `${i * 50}ms` }} />
+            <div className="bar bar-b" style={{ height: `${Math.max((d.b / max) * 100, 0.8)}%`, animationDelay: `${i * 50 + 70}ms` }} />
+          </div>
         ))}
-        {data.map((d, i) => {
-          const x = i * gap + gap / 2;
-          const hA = (d.a / max) * (chartH - 12);
-          const hB = (d.b / max) * (chartH - 12);
-          return (
-            <g key={d.label}>
-              <rect x={x - barW - 0.6} y={chartH - hA} width={barW} height={Math.max(hA, 0.4)} rx="0.7" fill="#17a08c" />
-              <rect x={x + 0.6} y={chartH - hB} width={barW} height={Math.max(hB, 0.4)} rx="0.7" fill="#c7ccd6" />
-            </g>
-          );
-        })}
-      </svg>
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${data.length}, 1fr)`, marginTop: 4 }}>
         {data.map((d) => (
           <div key={d.label} className="tiny muted center">{d.label}</div>
@@ -308,9 +301,18 @@ export function AgingBar({ totals }: { totals: { current: number; d1_30: number;
   return (
     <div>
       <div className="aging-bar">
-        {segs.map((s) => {
+        {segs.map((s, i) => {
           const pct = (totals[s.key] / total) * 100;
-          return pct > 0 ? <div key={s.key} className={`aging-seg ${s.key}`} style={{ width: `${pct}%` }} title={`${s.label}: ${moneyShort(totals[s.key])}`} /> : null;
+          return pct > 0
+            ? (
+              <div
+                key={s.key}
+                className={`aging-seg ${s.key}`}
+                style={{ width: `${pct}%`, animationDelay: `${i * 70}ms` }}
+                title={`${s.label}: ${moneyShort(totals[s.key])}`}
+              />
+            )
+            : null;
         })}
       </div>
       <div className="row wrap gap-12" style={{ marginTop: 10 }}>

@@ -112,6 +112,37 @@ window.history.pushState({}, '', '/contacts');
 window.dispatchEvent(new window.PopStateEvent('popstate'));
 check('contacts route loads', await waitFor(() => /Contacts/i.test(text()) && /Harbor Dental Group/i.test(text())));
 
+// ---------------------------------------------------------------------------
+// Landing page: reveal behaviour and the ?t= freeze harness.
+// ---------------------------------------------------------------------------
+const landingHtml = await (await fetch(`${base}/landing.html`)).text();
+const landing = new JSDOM(landingHtml, {
+  url: `${base}/landing.html`,
+  runScripts: 'dangerously',
+  pretendToBeVisual: true,
+  virtualConsole,
+});
+const landingText = landing.window.document.body.textContent.replace(/\s+/g, ' ');
+check('landing page serves', /balanced/.test(landingText) && /Profit & loss/.test(landingText));
+check('landing reveals without IntersectionObserver', await waitFor(() => {
+  const reveals = [...landing.window.document.querySelectorAll('.reveal')];
+  return reveals.length > 8 && reveals.every((el) => el.classList.contains('in'));
+}));
+check('landing chart bars carry real heights', (() => {
+  const bars = [...landing.window.document.querySelectorAll('[data-chart] .bar')];
+  return bars.length === 16 && bars.every((el) => /%$/.test(el.style.height));
+})());
+
+const frozen = new JSDOM(landingHtml, {
+  url: `${base}/landing.html?t=1.2`,
+  runScripts: 'dangerously',
+  pretendToBeVisual: true,
+  virtualConsole,
+});
+check('freeze harness pins animations at ?t=', await waitFor(() => frozen.window.__landingFrozen === 1.2));
+frozen.window.close();
+landing.window.close();
+
 if (failures.length) {
   console.error(`\n${failures.length} smoke check(s) failed:`);
   for (const failure of failures) console.error(` - ${failure}`);

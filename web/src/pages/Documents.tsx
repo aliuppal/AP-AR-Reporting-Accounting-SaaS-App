@@ -132,10 +132,15 @@ export function Documents({ kind }: { kind: 'invoice' | 'bill' }) {
                 </tr>
               </thead>
               <tbody>
-                {totals.items.map((doc) => {
+                {totals.items.map((doc, index) => {
                   const due = relativeDue(doc.dueDate, doc.status);
                   return (
-                    <tr key={doc.id} className="clickable" onClick={() => navigate(`${base}/${doc.id}`)}>
+                    <tr
+                      key={doc.id}
+                      className="clickable enter"
+                      style={{ '--enter-delay': `${Math.min(index, 14) * 22}ms` } as React.CSSProperties}
+                      onClick={() => navigate(`${base}/${doc.id}`)}
+                    >
                       <td>
                         <div className="doc-no">{doc.number}</div>
                         {doc.reference ? <div className="sub-line">{doc.reference}</div> : null}

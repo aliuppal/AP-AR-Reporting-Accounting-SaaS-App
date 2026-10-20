@@ -78,8 +78,13 @@ export function Contacts() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((c) => (
-                  <tr key={c.id} className="clickable" onClick={() => setEditing(c)}>
+                {items.map((c, index) => (
+                  <tr
+                    key={c.id}
+                    className="clickable enter"
+                    style={{ '--enter-delay': `${Math.min(index, 14) * 22}ms` } as React.CSSProperties}
+                    onClick={() => setEditing(c)}
+                  >
                     <td>
                       <div className="row gap-8">
                         <span className="avatar" style={{ background: 'var(--brand-50)', color: 'var(--brand)', width: 26, height: 26, fontSize: 10.5 }}>

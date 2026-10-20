@@ -6,9 +6,9 @@ import { formatDate, moneyShort, relativeDue } from '../lib/format';
 import { AgingBar, BarPairChart, Card, CardHead, EmptyState, Icon, Money, Spinner, StatusBadge } from '../ui';
 import { Link } from '../lib/router';
 
-function Kpi({ label, value, meta, accent, icon }: { label: string; value: string; meta?: React.ReactNode; accent?: 'warn' | 'neg' | 'info'; icon?: string }) {
+function Kpi({ label, value, meta, accent, icon, delay = 0 }: { label: string; value: string; meta?: React.ReactNode; accent?: 'warn' | 'neg' | 'info'; icon?: string; delay?: number }) {
   return (
-    <div className="card kpi">
+    <div className="card kpi lift enter" style={{ '--enter-delay': `${delay}ms` } as React.CSSProperties}>
       <div className={`kpi-accent ${accent ?? ''}`} />
       <div className="kpi-label">
         {icon ? <Icon name={icon} size={14} /> : null}
@@ -76,12 +76,14 @@ export function Dashboard() {
         <Kpi
           label="Receivables outstanding"
           icon="invoice"
+          delay={0}
           value={moneyShort(summary.receivableCents, currency)}
           meta={<><span className="neg">{moneyShort(summary.receivableOverdueCents, currency)}</span> overdue</>}
         />
         <Kpi
           label="Payables outstanding"
           icon="bill"
+          delay={60}
           accent="warn"
           value={moneyShort(summary.payableCents, currency)}
           meta={<><span className="neg">{moneyShort(summary.payableOverdueCents, currency)}</span> overdue</>}
@@ -89,6 +91,7 @@ export function Dashboard() {
         <Kpi
           label="Working capital"
           icon="reports"
+          delay={120}
           accent={summary.workingCapitalCents >= 0 ? undefined : 'neg'}
           value={moneyShort(summary.workingCapitalCents, currency)}
           meta={<>AR − AP</>}
@@ -96,6 +99,7 @@ export function Dashboard() {
         <Kpi
           label="Net cash · 30 days"
           icon="bank"
+          delay={180}
           accent="info"
           value={moneyShort(summary.cashIn30Cents - summary.cashOut30Cents, currency)}
           meta={<>{moneyShort(summary.cashIn30Cents, currency)} in · {moneyShort(summary.cashOut30Cents, currency)} out</>}
@@ -206,3 +210,4 @@ export function Dashboard() {
     </div>
   );
 }
+
