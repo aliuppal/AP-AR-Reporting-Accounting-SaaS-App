@@ -19,7 +19,7 @@ Amounts are **integer cents**. Dates are `YYYY-MM-DD`.
 
 | Method | Path | Body | Notes |
 | --- | --- | --- | --- |
-| POST | `/auth/login` | `{ email, password }` | Sets the session cookie, returns the user |
+| POST | `/auth/login` | `{ email, password }` | Sets the session cookie, returns the user. Seeded test account: `test@ledgerly.app` / `test1234` |
 | POST | `/auth/register` | `{ email, name, password }` | Creates a user and signs in |
 | POST | `/auth/logout` | — | Clears the cookie (`204`) |
 | GET | `/auth/me` | — | Current user |
@@ -27,7 +27,7 @@ Amounts are **integer cents**. Dates are `YYYY-MM-DD`.
 ```bash
 curl -c jar.txt -X POST http://127.0.0.1:4100/api/auth/login \
   -H 'content-type: application/json' \
-  -d '{"email":"demo@ledgerly.app","password":"demo1234"}'
+  -d '{"email":"test@ledgerly.app","password":"test1234"}'
 ```
 
 ---

@@ -10,5 +10,5 @@ for (const file of readdirSync(DATA_DIR).filter((f) => f.startsWith('ledgerly.db
 
 const db = openDb();
 seed(db);
-console.log('[reset] database recreated with demo data — demo@ledgerly.app / demo1234');
+console.log('[reset] database recreated with demo data — test@ledgerly.app / test1234');
 db.close();

@@ -1,7 +1,8 @@
 /* Ledgerly service worker — app shell caching with a network-first strategy. */
-const VERSION = 'ledgerly-v1';
+const VERSION = 'ledgerly-v2';
 const SHELL = [
-  '/',
+  '/app',
+  '/landing.html',
   '/index.html',
   '/app.js',
   '/styles.css',

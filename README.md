@@ -19,6 +19,7 @@ the browser, installable as a mobile app, and wrapped for native iOS/Android wit
 | **Reporting** | AR/AP aging (current, 1–30, 31–60, 61–90, 90+), profit & loss by month and category, cash flow with cumulative balance, DSO/DPO, CSV export, print layouts |
 | **Dashboard** | Outstanding AR/AP, overdue, working capital, 30-day cash movement, revenue vs expense trend, aging summary, largest overdue items |
 | **Platform** | Responsive web UI (sidebar on desktop, bottom tabs on mobile), installable PWA with offline shell, Capacitor config for native shells, cookie sessions |
+| **Landing page** | Animated marketing page at `/` for visitors, with product tour, reporting visuals and a test-login hint; the workspace lives at `/app` |
 
 Money is stored as **integer cents** end to end; dates are ISO `YYYY-MM-DD` strings. No floating point
 touches a balance.
@@ -33,12 +34,17 @@ npm run build      # bundles the React client into web/dist
 npm start          # API + static client on http://127.0.0.1:4100
 ```
 
-Open <http://127.0.0.1:4100> and sign in with:
+Open <http://127.0.0.1:4100> for the **landing page**, then **Open the app** (or go straight to
+<http://127.0.0.1:4100/app>) and sign in with the seeded test account:
 
 ```
-demo@ledgerly.app
-demo1234
+test@ledgerly.app
+test1234
 ```
+
+The login screen is prefilled with these details, and **Sign in with the test account** logs you in in
+one click. `/` serves the landing page to visitors and the workspace to anyone already signed in; `/app`
+always boots the app. Exactly one user is seeded — create more with `POST /api/auth/register`.
 
 The database is created on first boot and seeded with ten months of a design studio's ledger
 (≈80 invoices, ≈65 bills, ≈100 payments) so every screen has realistic data.

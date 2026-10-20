@@ -1,4 +1,4 @@
-﻿import { openDb, recomputeDocumentTotals, tx } from './db.js';
+import { openDb, recomputeDocumentTotals, tx } from './db.js';
 import { hashPassword } from './auth.js';
 
 /** Deterministic PRNG so demo data and tests are reproducible. */
@@ -96,9 +96,9 @@ export function seed(db, { force = false } = {}) {
       }
     }
 
-    const { salt, hash } = hashPassword('demo1234');
+    const { salt, hash } = hashPassword('test1234');
     db.prepare('INSERT INTO users (email, name, password_hash, salt, role) VALUES (?, ?, ?, ?, ?)')
-      .run('demo@ledgerly.app', 'Alex Morgan', hash, salt, 'owner');
+      .run('test@ledgerly.app', 'Alex Morgan', hash, salt, 'owner');
 
     db.prepare(
       `UPDATE settings SET company_name = ?, legal_name = ?, currency = 'USD', default_terms_days = 30,
@@ -277,7 +277,7 @@ export function seed(db, { force = false } = {}) {
 if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}`) {
   const db = openDb();
   const result = seed(db, { force: process.argv.includes('--force') });
-  console.log(result.skipped ? 'Database already has users — seed skipped (use --force to reset).' : 'Seed complete: demo@ledgerly.app / demo1234');
+  console.log(result.skipped ? 'Database already has users — seed skipped (use --force to reset).' : 'Seed complete: test@ledgerly.app / test1234');
   db.close();
 }
 

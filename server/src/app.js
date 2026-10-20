@@ -1,7 +1,7 @@
 import express from 'express';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { authRequired } from './auth.js';
+import { SESSION_COOKIE, authRequired, parseCookies, readSession } from './auth.js';
 import { ROOT } from './db.js';
 import { errorHandler, notFound } from './http.js';
 import { authRouter } from './routes/auth.js';
@@ -49,8 +49,21 @@ export function createApp(db) {
 
   const dist = join(ROOT, 'web', 'dist');
   if (existsSync(dist)) {
+    const indexFile = join(dist, 'index.html');
+    const landingFile = join(dist, 'landing.html');
     app.use(express.static(dist, { index: false, maxAge: '1h', etag: true }));
-    app.get(/^(?!\/api).*/, (req, res) => res.sendFile(join(dist, 'index.html')));
+
+    // Marketing entry point for visitors; the signed-in workspace for everyone else.
+    app.get('/', (req, res) => {
+      const session = readSession(parseCookies(req.headers.cookie ?? '')[SESSION_COOKIE]);
+      res.set('Cache-Control', 'no-cache');
+      res.sendFile(session && existsSync(indexFile) ? indexFile : landingFile);
+    });
+
+    // Explicit app entry so links from the landing page never depend on session state.
+    app.get(/^\/app(\/.*)?$/, (req, res) => res.sendFile(indexFile));
+
+    app.get(/^(?!\/api).*/, (req, res) => res.sendFile(indexFile));
   } else {
     app.get('/', (req, res) => res.status(503).type('html').send(
       '<h1>Ledgerly API is running</h1><p>The web client has not been built yet. Run <code>npm run build</code>.</p>',

@@ -39,7 +39,7 @@ async function waitFor(fn, { timeout = 12000, interval = 120 } = {}) {
 const login = await fetch(`${base}/api/auth/login`, {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ email: 'demo@ledgerly.app', password: 'demo1234' }),
+  body: JSON.stringify({ email: 'test@ledgerly.app', password: 'test1234' }),
 });
 const setCookie = login.headers.getSetCookie?.()[0] ?? login.headers.get('set-cookie');
 if (!login.ok || !setCookie) {

@@ -28,14 +28,15 @@ const MOBILE_NAV = [
 ];
 
 function isActive(path: string, to: string) {
-  if (to === '/') return path === '/';
+  if (to === '/') return path === '/' || path === '/app';
   return path === to || path.startsWith(`${to}/`);
 }
 
 function Routes() {
   const { path } = useRouter();
 
-  if (path === '/' || path === '') return <Dashboard />;
+  // `/app` is the explicit entry point used by the landing page CTAs.
+  if (path === '/' || path === '' || path === '/app') return <Dashboard />;
   if (path === '/invoices') return <Documents kind="invoice" />;
   if (path === '/bills') return <Documents kind="bill" />;
   if (path === '/contacts') return <Contacts />;
@@ -71,7 +72,7 @@ function Shell() {
   useEffect(() => { setMenuOpen(false); }, [path]);
 
   const title = useMemo(() => {
-    if (path === '/') return 'Dashboard';
+    if (path === '/' || path === '/app') return 'Dashboard';
     if (path.startsWith('/invoices')) return 'Receivables';
     if (path.startsWith('/bills')) return 'Payables';
     if (path.startsWith('/contacts')) return 'Contacts';

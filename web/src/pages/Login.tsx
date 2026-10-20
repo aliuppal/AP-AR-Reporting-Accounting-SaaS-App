@@ -5,8 +5,8 @@ import { Button, Field, Icon, Input } from '../ui';
 
 export function Login() {
   const { login } = useAuth();
-  const [email, setEmail] = useState('demo@ledgerly.app');
-  const [password, setPassword] = useState('demo1234');
+  const [email, setEmail] = useState('test@ledgerly.app');
+  const [password, setPassword] = useState('test1234');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -17,6 +17,20 @@ export function Login() {
     setError('');
     try {
       await login(email.trim(), password);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Unable to sign in');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const signInWithTestAccount = async () => {
+    setEmail('test@ledgerly.app');
+    setPassword('test1234');
+    setBusy(true);
+    setError('');
+    try {
+      await login('test@ledgerly.app', 'test1234');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Unable to sign in');
     } finally {
@@ -100,9 +114,18 @@ export function Login() {
           </form>
 
           <div className="demo-note">
-            <strong>Demo workspace</strong><br />
-            demo@ledgerly.app · demo1234<br />
+            <strong>Test account</strong><br />
+            <span className="num">test@ledgerly.app</span> · <span className="num">test1234</span><br />
             <span className="small">Seeded with 10 months of invoices, bills and payments.</span>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={signInWithTestAccount}
+              disabled={busy}
+              style={{ marginTop: 10, width: '100%' }}
+            >
+              <Icon name="check" size={14} /> {busy ? 'Signing in…' : 'Sign in with the test account'}
+            </button>
           </div>
 
           <a href="/landing.html" className="small muted" style={{ textAlign: 'center' }}>

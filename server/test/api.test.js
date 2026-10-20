@@ -55,11 +55,11 @@ test('health check is public, data routes are not', async () => {
 });
 
 test('login rejects bad credentials and accepts the demo user', async () => {
-  const bad = await api('/api/auth/login', { method: 'POST', body: { email: 'demo@ledgerly.app', password: 'nope' } });
+  const bad = await api('/api/auth/login', { method: 'POST', body: { email: 'test@ledgerly.app', password: 'nope' } });
   assert.equal(bad.status, 401);
-  const ok = await api('/api/auth/login', { method: 'POST', body: { email: 'demo@ledgerly.app', password: 'demo1234' } });
+  const ok = await api('/api/auth/login', { method: 'POST', body: { email: 'test@ledgerly.app', password: 'test1234' } });
   assert.equal(ok.status, 200);
-  assert.equal(ok.data.email, 'demo@ledgerly.app');
+  assert.equal(ok.data.email, 'test@ledgerly.app');
   const me = await api('/api/auth/me');
   assert.equal(me.data.name, 'Alex Morgan');
 });
@@ -214,4 +214,25 @@ test('validation and guards return structured errors', async () => {
 
   const missing = await api('/api/invoices/999999');
   assert.equal(missing.status, 404);
+});
+
+test('landing page greets visitors, the app shell greets signed-in users', async () => {
+  const { existsSync } = await import('node:fs');
+  if (!existsSync(join(ROOT, 'web', 'dist', 'index.html'))) return; // client not built in this environment
+
+  // Anonymous: the marketing page and its CTA into /app.
+  const anon = await fetch(`${base}/`);
+  const anonHtml = await anon.text();
+  assert.equal(anon.status, 200);
+  assert.match(anon.headers.get('content-type'), /text\/html/);
+  assert.match(anonHtml, /class="hero"/);
+  assert.match(anonHtml, /href="\.\/app"/);
+
+  // `/app` always boots the workspace, signed in or not.
+  const entry = await fetch(`${base}/app`);
+  assert.match(await entry.text(), /id="root"/);
+
+  // With the session cookie from the login test, `/` is the workspace itself.
+  const signedIn = await fetch(`${base}/`, { headers: { cookie } });
+  assert.match(await signedIn.text(), /id="root"/);
 });
