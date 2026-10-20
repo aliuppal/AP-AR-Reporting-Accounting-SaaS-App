@@ -104,6 +104,18 @@ window.dispatchEvent(new window.PopStateEvent('popstate'));
 check('invoices route loads', await waitFor(() => /Receivables/i.test(text()) && /Open balance/i.test(text())), text().slice(0, 120));
 check('invoice rows arrive from the API', await waitFor(() => /INV-\d{4}-\d{4}/.test(text())));
 
+// The editor dialog must live at <body> level (not inside the transformed route wrapper)
+// and its body must be the scroll container — the "unable to scroll" regression.
+window.history.pushState({}, '', '/invoices?new=1');
+window.dispatchEvent(new window.PopStateEvent('popstate'));
+check('invoice editor opens', await waitFor(() => !!window.document.querySelector('.overlay')));
+check('dialog is portalled to <body>', window.document.querySelector('.overlay')?.parentElement === window.document.body);
+{
+  const dialogBody = window.document.querySelector('.modal-body');
+  const overflow = dialogBody ? window.getComputedStyle(dialogBody).overflowY : '';
+  check('dialog body is the scroll container', overflow === 'auto', `overflow-y: ${overflow || 'unset'}`);
+}
+
 window.history.pushState({}, '', '/reports?tab=pl');
 window.dispatchEvent(new window.PopStateEvent('popstate'));
 check('reports route loads', await waitFor(() => /Profit & loss/i.test(text()) && /Revenue vs expenses/i.test(text())));
