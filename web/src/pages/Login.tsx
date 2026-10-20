@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../auth';
 import { ApiError } from '../api';
 import { Button, Field, Icon, Input } from '../ui';
@@ -14,6 +14,18 @@ export function Login() {
   const [email, setEmail] = useState('test@ledgerly.app');
   const [password, setPassword] = useState('test1234');
   const [error, setError] = useState('');
+  const [apiState, setApiState] = useState<'checking' | 'online' | 'unreachable'>('checking');
+
+  // Show reachability on the sign-in card: it separates "API is down / blocked" from
+  // "credentials rejected" without needing DevTools.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/health', { credentials: 'same-origin' })
+      .then((res) => (res.ok ? 'online' : 'unreachable'))
+      .catch(() => 'unreachable')
+      .then((state) => { if (!cancelled) setApiState(state as 'online' | 'unreachable'); });
+    return () => { cancelled = true; };
+  }, []);
   const [busy, setBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -139,7 +151,10 @@ export function Login() {
           </a>
 
           <div className="tiny muted" style={{ textAlign: 'center' }} data-build={buildStamp()}>
-            build {buildStamp()}
+            build {buildStamp()} · api{' '}
+            <span style={{ color: apiState === 'online' ? 'var(--pos)' : apiState === 'unreachable' ? 'var(--neg)' : 'var(--muted)' }}>
+              {apiState}
+            </span>
           </div>
         </div>
       </div>

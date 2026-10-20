@@ -29,8 +29,19 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     ...options,
   });
   if (res.status === 204) return undefined as T;
+
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  let data: { error?: string; details?: { path: string; message: string }[] } | null = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    // A non-JSON body means an edge/proxy error page, not our API — say so plainly.
+    throw new ApiError(
+      res.status,
+      `HTTP ${res.status} from ${BASE}${path} (${res.headers.get('content-type') ?? 'unknown content type'})`,
+    );
+  }
+
   if (!res.ok) {
     throw new ApiError(res.status, data?.error ?? `Request failed (${res.status})`, data?.details);
   }
