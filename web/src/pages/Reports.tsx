@@ -283,8 +283,8 @@ function ProfitLossView({ currency }: { currency: string }) {
                       <span className="small">{row.category}</span>
                       <Money cents={row.amountCents} currency={currency} />
                     </div>
-                    <div style={{ height: 6, background: '#f2f4f7', borderRadius: 99 }}>
-                      <div style={{ width: `${(Math.abs(row.amountCents) / maxCategory(data.revenueByCategory)) * 100}%`, height: '100%', background: '#17a08c', borderRadius: 99 }} />
+                    <div style={{ height: 6, background: '#2d2d2d', borderRadius: 99 }}>
+                      <div style={{ width: `${(Math.abs(row.amountCents) / maxCategory(data.revenueByCategory)) * 100}%`, height: '100%', background: '#3cffd0', borderRadius: 99 }} />
                     </div>
                   </div>
                 ))}
@@ -299,8 +299,8 @@ function ProfitLossView({ currency }: { currency: string }) {
                       <span className="small">{row.category}</span>
                       <Money cents={row.amountCents} currency={currency} />
                     </div>
-                    <div style={{ height: 6, background: '#f2f4f7', borderRadius: 99 }}>
-                      <div style={{ width: `${(Math.abs(row.amountCents) / maxCategory(data.expenseByCategory)) * 100}%`, height: '100%', background: '#d2552f', borderRadius: 99 }} />
+                    <div style={{ height: 6, background: '#2d2d2d', borderRadius: 99 }}>
+                      <div style={{ width: `${(Math.abs(row.amountCents) / maxCategory(data.expenseByCategory)) * 100}%`, height: '100%', background: '#ff5ca8', borderRadius: 99 }} />
                     </div>
                   </div>
                 ))}

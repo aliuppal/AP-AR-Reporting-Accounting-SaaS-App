@@ -16,6 +16,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const targets = [
   'web/styles.css',
   'web/motion.css',
+  'web/theme-verge.css',
   'web/public/landing.html',
 ];
 

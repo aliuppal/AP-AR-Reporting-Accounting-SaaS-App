@@ -1,226 +1,231 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Ledgerly — the ledger that keeps up with you</title>
-<meta name="description" content="Receivables, payables and aging reports in one workspace. Built for small finance teams who close the books weekly, not monthly." />
-<meta name="theme-color" content="#0a111d" />
+<title>Ledgerly — receivables, payables, reporting</title>
+<meta name="description" content="Ledgerly is an editorial-grade ledger for small finance teams: invoices, bills, payments, aging and P&L in one near-black workspace." />
+<meta name="theme-color" content="#131313" />
 <link rel="icon" href="icon-192.png" sizes="192x192" />
+<link rel="stylesheet" href="/fonts/fonts.css" />
 <style>
   :root{
-    --ink:#0a111d; --ink-2:#111a29; --ink-3:#1a2437;
-    --paper:#f5f6f8; --card:#fff; --line:#e4e7ec;
-    --muted:#667085; --muted-2:#8b93a3;
-    --brand:#17a08c; --brand-2:#0f6f61; --brand-soft:#e2f1ee;
-    --neg:#b42318; --warn:#b54708; --pos:#0f7b5f;
-    --font:"Inter","SF Pro Text",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    --mono:"SFMono-Regular",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
-    --shadow:0 24px 70px rgba(8,14,25,.28);
+    --canvas:#131313; --surface:#2d2d2d; --surface-2:#1a1a1a;
+    --white:#fff; --muted:#e9e9e9; --meta:#949494; --dim:#8c8c8c;
+    --mint:#3cffd0; --uv:#5200ff; --uv-deep:#3d00bf;
+    --blue:#3860be; --yellow:#ffd400; --pink:#ff5ca8; --orange:#ff8a3d;
+    --display:"Anton",Impact,"Arial Narrow",sans-serif;
+    --ui:"Space Grotesk",Helvetica,Arial,sans-serif;
+    --mono:"JetBrains Mono","Courier New",monospace;
+    --line:rgba(255,255,255,.16);
+    --line-strong:rgba(255,255,255,.42);
   }
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
-  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font);-webkit-font-smoothing:antialiased;line-height:1.5;overflow-x:hidden}
-  h1,h2,h3,p{margin:0}
-  a{color:inherit;text-decoration:none}
-  ::selection{background:#bde7df}
-  .wrap{width:min(1160px,calc(100% - 48px));margin:0 auto}
+  body{margin:0;background:var(--canvas);color:var(--white);font-family:var(--ui);line-height:1.5;overflow-x:hidden;-webkit-font-smoothing:antialiased}
+  h1,h2,h3,h4,p{margin:0}
+  a{color:inherit;text-decoration:none;transition:color 150ms ease}
+  a:hover{color:var(--blue)}
+  ::selection{background:var(--mint);color:#000}
+  .wrap{width:min(1280px,calc(100% - 64px));margin:0 auto}
   .num{font-variant-numeric:tabular-nums}
+  .mono{font-family:var(--mono);text-transform:uppercase;letter-spacing:.16em}
 
-  /* ---------- nav ---------- */
-  .nav{position:sticky;top:0;z-index:40;background:rgba(10,17,29,.72);backdrop-filter:blur(14px);border-bottom:1px solid rgba(255,255,255,.07)}
-  .nav-in{display:flex;align-items:center;gap:28px;height:66px}
-  .logo{display:flex;align-items:center;gap:10px;color:#fff;font-weight:650;letter-spacing:-.02em}
-  .mark{width:30px;height:30px;border-radius:9px;background:linear-gradient(140deg,#1fc0a6,#0b574c);display:grid;place-items:center;font-size:14px;font-weight:700;box-shadow:inset 0 1px 0 rgba(255,255,255,.28)}
-  .nav-links{display:flex;gap:22px;margin-left:12px}
-  .nav-links a{color:#a9b4c6;font-size:13.5px;font-weight:500;transition:color .15s ease}
-  .nav-links a:hover{color:#fff}
+  /* masthead */
+  .nav{position:sticky;top:0;z-index:40;background:var(--canvas);border-bottom:1px solid var(--line)}
+  .nav-in{display:flex;align-items:center;gap:26px;height:64px}
+  .nav-links{display:flex;gap:22px;margin-left:8px}
+  .nav-links a{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
   .nav-cta{margin-left:auto;display:flex;gap:10px;align-items:center}
-  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;padding:0 18px;border-radius:10px;font-size:13.5px;font-weight:560;border:1px solid transparent;cursor:pointer;transition:transform .18s cubic-bezier(.2,0,0,1),background-color .18s ease,border-color .18s ease}
-  .btn:active{transform:translateY(1px)}
-  .btn-primary{background:var(--brand);color:#04140f;box-shadow:0 6px 18px rgba(23,160,140,.25)}
-  .btn-primary:hover{background:#1fb39c}
-  .btn-ghost{color:#dbe3ee;border-color:rgba(255,255,255,.16)}
-  .btn-ghost:hover{border-color:rgba(255,255,255,.32);background:rgba(255,255,255,.05)}
-  .btn-dark{background:var(--ink);color:#fff}
-  .btn-dark:hover{background:#152033}
 
-  /* ---------- hero ---------- */
-  .hero{position:relative;background:
-      radial-gradient(110% 90% at 15% 0%,#123b36 0%,#0a111d 52%,#080d16 100%);
-      color:#e9eef5;padding:76px 0 96px;overflow:hidden}
-  .hero::after{content:"";position:absolute;right:-220px;top:-180px;width:620px;height:620px;border-radius:50%;
-      border:1px solid rgba(31,192,166,.18);box-shadow:0 0 0 70px rgba(31,192,166,.045),0 0 0 150px rgba(31,192,166,.03);pointer-events:none}
-  .hero-grid{display:grid;grid-template-columns:minmax(0,1.02fr) minmax(0,1fr);gap:56px;align-items:center;position:relative;z-index:1}
-  .eyebrow{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 12px;border-radius:999px;background:rgba(31,192,166,.12);border:1px solid rgba(31,192,166,.22);color:#7fe0cd;font-size:12px;font-weight:560;letter-spacing:.01em}
-  .dot{width:6px;height:6px;border-radius:50%;background:#2fd0b4;box-shadow:0 0 0 3px rgba(47,208,180,.18)}
-  h1{font-size:clamp(38px,4.6vw,60px);line-height:1.03;letter-spacing:-.035em;font-weight:680;margin:22px 0 18px}
-  h1 em{font-style:normal;color:#5ad7c0}
-  .lede{color:#a9b6c8;font-size:17px;line-height:1.6;max-width:520px}
-  .hero-cta{display:flex;gap:12px;margin-top:30px;flex-wrap:wrap}
-  .hero-proof{display:flex;gap:22px;margin-top:34px;flex-wrap:wrap;color:#8b98ab;font-size:12.5px}
-  .hero-proof span{display:flex;align-items:center;gap:7px}
-  .tick{width:16px;height:16px;border-radius:50%;background:rgba(31,192,166,.16);display:grid;place-items:center;color:#5ad7c0;font-size:9px}
+  .wordmark{display:flex;align-items:baseline;gap:14px;padding:22px 0 6px;border-bottom:1px solid var(--line-strong)}
+  .wordmark h1{font-family:var(--display);font-weight:400;text-transform:uppercase;font-size:clamp(56px,11vw,107px);line-height:.95;letter-spacing:.01em}
+  .wordmark .tag{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--mint);padding-bottom:10px}
 
-  /* ---------- hero product mock ---------- */
-  .mock-stage{position:relative;perspective:1200px}
-  .mock-tilt{transform-style:preserve-3d;will-change:transform}
-  .mock{background:#fff;color:var(--ink);border-radius:18px;box-shadow:var(--shadow);overflow:hidden;transform:rotateY(-9deg) rotateX(4deg)}
-  .mock-bar{display:flex;align-items:center;gap:6px;padding:11px 14px;border-bottom:1px solid #eef0f4;background:#fbfcfd}
-  .mock-bar i{width:8px;height:8px;border-radius:50%;background:#e3e7ee}
-  .mock-bar .name{margin-left:8px;font-size:11.5px;color:var(--muted);font-weight:550}
-  .mock-body{padding:16px}
-  .mock-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
-  .mk{border:1px solid #edf0f4;border-radius:10px;padding:9px 10px;background:#fcfdfe}
-  .mk b{display:block;font-size:15px;letter-spacing:-.02em}
-  .mk span{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
-  .mk .up{color:var(--pos);font-size:9.5px}
-  .mk .down{color:var(--neg);font-size:9.5px}
-  .mock-chart{margin-top:12px;border:1px solid #edf0f4;border-radius:10px;padding:11px 12px}
-  .mock-chart .head{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:10px}
-  .mini-bars{display:flex;align-items:flex-end;gap:7px;height:74px}
-  .mini-bar{flex:1;display:flex;gap:2px;align-items:flex-end;height:100%;transform-origin:bottom}
-  .mini-bar i{flex:1;border-radius:2px 2px 1px 1px;display:block;transform-origin:bottom}
-  .mini-bar .a{background:#1fb39c}
-  .mini-bar .b{background:#d7dce4}
-  .mock-rows{margin-top:12px;display:flex;flex-direction:column;gap:6px}
-  .mrow{display:flex;align-items:center;gap:8px;border:1px solid #f0f2f6;border-radius:8px;padding:7px 9px;font-size:10.5px}
-  .mrow .who{font-weight:560}
-  .mrow .ref{color:var(--muted);font-size:9.5px}
-  .mrow .amt{margin-left:auto;font-weight:600;font-variant-numeric:tabular-nums}
-  .pill{font-size:8.5px;padding:2px 6px;border-radius:999px;font-weight:600;letter-spacing:.02em}
-  .pill.ok{background:#e6f4ef;color:#0f7b5f}
-  .pill.late{background:#feeceb;color:#b42318}
-  .float-card{position:absolute;background:#fff;border-radius:12px;box-shadow:0 18px 40px rgba(8,14,25,.18);padding:10px 12px;display:flex;gap:9px;align-items:center;font-size:11px;color:var(--ink)}
-  .float-card .ic{width:26px;height:26px;border-radius:8px;background:var(--brand-soft);color:var(--brand-2);display:grid;place-items:center;font-size:12px;font-weight:700}
-  .float-a{right:-18px;top:38px}
-  .float-b{left:-26px;bottom:22px}
-  .float-c{right:26px;bottom:-18px}
+  /* buttons */
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:10px 24px;border-radius:24px;border:1px solid transparent;font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;cursor:pointer;transition:background 180ms ease,color 180ms ease,border-color 180ms ease}
+  .btn-mint{background:var(--mint);color:#000}
+  .btn-mint:hover{background:rgba(255,255,255,.2);color:#000;border-color: #c2c2c2;}
+  .btn-slate{background:var(--surface);color:var(--muted)}
+  .btn-slate:hover{background:rgba(255,255,255,.2);color:#000;border-color: #c2c2c2;}
+  .btn-outline{background:transparent;border-color:var(--mint);color:var(--mint);border-radius:40px}
+  .btn-outline:hover{background:var(--mint);color:#000}
 
-  /* ---------- sections ---------- */
-  section{padding:88px 0}
-  .kicker{color:var(--brand-2);font-size:12px;font-weight:650;letter-spacing:.1em;text-transform:uppercase}
-  h2{font-size:clamp(28px,3.1vw,40px);line-height:1.1;letter-spacing:-.03em;font-weight:660;margin:12px 0 14px}
-  .sub{color:var(--muted);font-size:16px;max-width:620px}
-  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-top:40px}
-  .stat{background:#fff;padding:22px 22px}
-  .stat b{display:block;font-size:28px;letter-spacing:-.03em;font-weight:670}
-  .stat span{font-size:12.5px;color:var(--muted)}
-  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:38px}
-  .card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:22px;position:relative;transition:transform .25s cubic-bezier(.2,0,0,1)}
-  .card h3{font-size:15.5px;letter-spacing:-.01em;margin-bottom:7px}
-  .card p{color:var(--muted);font-size:13.5px;line-height:1.55}
-  .card .ico{width:34px;height:34px;border-radius:10px;background:var(--brand-soft);color:var(--brand-2);display:grid;place-items:center;margin-bottom:14px}
-  .card:hover{transform:translateY(-3px)}
-  .card::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:0 18px 40px rgba(8,14,25,.13);opacity:0;transition:opacity .25s ease;pointer-events:none}
-  .card:hover::after{opacity:1}
+  /* hero */
+  .hero{padding:44px 0 40px;border-bottom:1px solid var(--line)}
+  .hero-grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:48px;align-items:start}
+  .kicker{font-family:var(--ui);font-weight:300;font-size:20px;letter-spacing:1.9px;text-transform:capitalize;color:var(--muted)}
+  h2.display{font-family:var(--display);font-weight:400;text-transform:uppercase;font-size:clamp(40px,5.4vw,76px);line-height:.95;letter-spacing:.005em;margin:14px 0 18px}
+  h2.display em{font-style:normal;color:var(--mint)}
+  .lede{color:var(--meta);font-size:17px;line-height:1.6;max-width:560px}
+  .hero-cta{display:flex;gap:12px;margin-top:26px;flex-wrap:wrap}
+  .hero-meta{display:flex;gap:24px;margin-top:30px;flex-wrap:wrap;font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--meta)}
+  .hero-meta b{color:var(--white);font-weight:600}
 
-  /* report panel */
-  .report{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:44px;align-items:center}
-  .panel{background:#fff;border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:0 20px 50px rgba(8,14,25,.08)}
-  .panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
-  .panel-head b{font-size:13.5px}
-  .panel-head span{font-size:11.5px;color:var(--muted)}
-  .chart{display:flex;align-items:flex-end;gap:10px;height:170px}
+  /* window mock */
+  .stage{position:relative}
+  .tilt{will-change:transform}
+  .window{border:1px solid var(--line-strong);border-radius:24px;overflow:hidden;background:var(--canvas)}
+  .win-bar{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}
+  .win-bar i{width:8px;height:8px;border-radius:50%;background:var(--surface);display:block}
+  .win-bar i:first-child{background:var(--mint)}
+  .win-bar span{margin-left:8px;font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--meta)}
+  .win-body{padding:18px}
+  .win-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .win-kpi{border:1px solid var(--line);border-radius:16px;padding:12px}
+  .win-kpi span{display:block;font-family:var(--mono);font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--meta)}
+  .win-kpi b{font-size:20px;letter-spacing:-.02em;display:block;margin-top:6px}
+  .win-chart{margin-top:12px;border:1px solid var(--line);border-radius:16px;padding:14px}
+  .win-chart .head{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--meta);margin-bottom:12px}
+  .mini-bars{display:flex;align-items:flex-end;gap:8px;height:96px}
+  .mini-bars .col{flex:1;display:flex;align-items:flex-end;gap:3px;height:100%}
+  .mini-bars i{flex:1;display:block;border-radius:2px;transform-origin:bottom}
+  .mini-bars .a{background:var(--mint)}
+  .mini-bars .b{background:var(--uv)}
+  .win-rows{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+  .wrow{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:11px}
+  .wrow .who{font-weight:600}
+  .wrow .ref{font-family:var(--mono);font-size:9px;letter-spacing:.1em;color:var(--meta)}
+  .wrow .amt{margin-left:auto;font-weight:700;font-variant-numeric:tabular-nums}
+  .tagpill{font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;border-radius:20px;padding:3px 8px}
+  .tagpill.mint{background:var(--mint);color:#000}
+  .tagpill.pink{background:var(--pink);color:#000}
+  .tagpill.uv{background:var(--uv);color:#fff}
+
+  /* stream */
+  .section{padding:64px 0;border-bottom:1px solid var(--line)}
+  .section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:34px}
+  .section-head .mono{color:var(--mint);font-size:11px}
+  .section-head p{color:var(--meta);max-width:520px;font-size:15px}
+
+  .stream{position:relative}
+  .stream::before{content:"";position:absolute;left:132px;top:6px;bottom:6px;width:1px;background:var(--uv-deep)}
+  .entry{display:grid;grid-template-columns:112px minmax(0,1fr);gap:44px;padding:0 0 16px}
+  .stamp{padding-top:26px;font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--meta);text-align:right}
+  .tile{border:1px solid var(--line-strong);border-radius:20px;padding:26px 28px;transition:border-color 150ms ease,background 150ms ease}
+  .tile:hover{border-color:var(--mint)}
+  .tile h3{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--mint);margin-bottom:10px}
+  .tile h4{font-size:26px;font-weight:700;letter-spacing:-.02em;line-height:1.05;margin-bottom:8px;transition:color 150ms ease}
+  .tile:hover h4{color:var(--blue)}
+  .tile p{color:var(--meta);font-size:14.5px;max-width:640px}
+  .tile.mint{background:var(--mint);border-color:var(--mint)}
+  .tile.mint h3,.tile.mint p{color:#0b3a30}
+  .tile.mint h4{color:#000}
+  .tile.mint:hover h4{color:#000}
+  .tile.uv{background:var(--uv);border-color:var(--uv)}
+  .tile.uv h3{color:var(--mint)}
+  .tile.uv h4{color:#fff}
+  .tile.uv p{color:#d9ccff}
+  .tile.yellow{background:var(--yellow);border-color:var(--yellow)}
+  .tile.yellow h3{color:#4a3a00}
+  .tile.yellow h4{color:#000}
+  .tile.yellow p{color:#3a2f00}
+  .tile.white{background:#fff;border-color:#fff}
+  .tile.white h3{color:var(--uv)}
+  .tile.white h4{color:#000}
+  .tile.white p{color:#333}
+
+  /* stats + report */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:20px;overflow:hidden}
+  .stat{padding:24px;border-right:1px solid var(--line)}
+  .stat:last-child{border-right:none}
+  .stat b{display:block;font-family:var(--display);font-size:44px;line-height:1;letter-spacing:.01em;color:var(--mint)}
+  .stat span{display:block;margin-top:8px;font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--meta)}
+
+  .report{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:44px;align-items:center}
+  .panel{border:1px solid var(--line-strong);border-radius:24px;padding:22px}
+  .panel .ph{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:18px}
+  .panel .ph b{font-size:15px}
+  .panel .ph span{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--meta)}
+  .chart{display:flex;align-items:flex-end;gap:10px;height:190px}
   .chart .col{flex:1;display:flex;align-items:flex-end;justify-content:center;gap:4px;height:100%}
-  .chart .bar{width:38%;max-width:20px;border-radius:3px 3px 2px 2px;transform-origin:bottom center}
-  .chart .bar.a{background:#1fb39c}
-  .chart .bar.b{background:#d7dce4}
-  .chart-x{display:grid;grid-template-columns:repeat(8,1fr);margin-top:8px;font-size:10px;color:var(--muted-2);text-align:center}
-  .aging{margin-top:20px}
-  .aging-bar{display:flex;height:12px;border-radius:99px;overflow:hidden;background:#eef1f5}
-  .aging .seg{height:100%;transform-origin:left center}
-  .aging .seg.current{background:#1fb39c}
-  .aging .seg.d1{background:#f0b429}
-  .aging .seg.d31{background:#e8833a}
-  .aging .seg.d61{background:#d2552f}
-  .aging .seg.d90{background:#b42318}
-  .aging-legend{display:flex;gap:14px;margin-top:10px;flex-wrap:wrap;font-size:11px;color:var(--muted)}
-  .aging-legend i{width:7px;height:7px;border-radius:2px;display:inline-block;margin-right:5px}
+  .chart .bar{width:38%;max-width:22px;border-radius:3px;transform-origin:bottom}
+  .chart .bar.a{background:var(--mint)}
+  .chart .bar.b{background:var(--uv)}
+  .chart-x{display:grid;grid-template-columns:repeat(8,1fr);margin-top:8px;font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);text-align:center}
+  .aging{margin-top:22px}
+  .aging-bar{display:flex;height:12px;border-radius:99px;overflow:hidden;background:var(--surface)}
+  .aging .seg{height:100%;transform-origin:left}
+  .aging .seg.current{background:var(--mint)}
+  .aging .seg.d1{background:var(--yellow)}
+  .aging .seg.d31{background:var(--orange)}
+  .aging .seg.d61{background:var(--pink)}
+  .aging .seg.d90{background:var(--uv)}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--meta)}
+  .legend i{width:7px;height:7px;border-radius:2px;display:inline-block;margin-right:5px}
 
-  /* phone */
-  .mobile-sec{background:var(--ink);color:#e9eef5;border-radius:0;position:relative;overflow:hidden}
-  .mobile-sec::before{content:"";position:absolute;left:-160px;bottom:-220px;width:520px;height:520px;border-radius:50%;background:radial-gradient(circle,rgba(31,192,166,.16),transparent 65%)}
-  .mobile-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:60px;align-items:center;position:relative}
-  .mobile-sec h2{color:#fff}
-  .mobile-sec .sub{color:#a9b6c8}
-  .phone{width:270px;height:540px;border-radius:38px;background:#0e1624;border:1px solid rgba(255,255,255,.12);padding:10px;box-shadow:0 40px 90px rgba(0,0,0,.45);margin:0 auto;position:relative}
-  .phone-screen{background:var(--paper);border-radius:30px;height:100%;overflow:hidden;color:var(--ink);position:relative}
-  .phone-notch{position:absolute;left:50%;top:16px;transform:translateX(-50%);width:76px;height:19px;background:#0e1624;border-radius:99px;z-index:3}
-  .ps-head{padding:38px 14px 10px;background:#fff;border-bottom:1px solid var(--line)}
-  .ps-head .t{font-size:15px;font-weight:650;letter-spacing:-.02em}
-  .ps-head .s{font-size:9.5px;color:var(--muted)}
-  .ps-body{padding:12px;display:flex;flex-direction:column;gap:9px}
-  .ps-kpi{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  .ps-card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px}
-  .ps-card span{font-size:8px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);display:block}
-  .ps-card b{font-size:13px;letter-spacing:-.02em}
-  .ps-row{background:#fff;border:1px solid var(--line);border-radius:9px;padding:8px 9px;display:flex;align-items:center;gap:7px;font-size:9.5px}
-  .ps-row .amt{margin-left:auto;font-weight:600}
-  .ps-nav{position:absolute;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:8px 4px 14px;font-size:7.5px;color:var(--muted)}
-  .ps-nav .on{color:var(--brand-2);font-weight:600}
-  .ps-nav div{display:flex;flex-direction:column;align-items:center;gap:3px}
-  .ps-dot{width:15px;height:15px;border-radius:5px;background:#e9edf2}
-  .ps-nav .on .ps-dot{background:var(--brand-soft)}
+  /* mobile */
+  .mobile{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:56px;align-items:center}
+  .checks{display:flex;flex-direction:column;gap:14px;margin-top:24px}
+  .check{display:flex;gap:12px;align-items:flex-start;font-size:14.5px;color:var(--muted)}
+  .check b{color:#fff;font-weight:600}
+  .check .dot{flex:none;width:18px;height:18px;border-radius:50%;border:1px solid var(--mint);display:grid;place-items:center;color:var(--mint);font-size:9px;margin-top:2px}
+  .phone{width:264px;height:532px;border:1px solid var(--line-strong);border-radius:38px;padding:9px;margin:0 auto}
+  .phone-in{background:var(--canvas);border-radius:30px;height:100%;overflow:hidden;position:relative}
+  .p-head{padding:34px 16px 12px;border-bottom:1px solid var(--line)}
+  .p-head .t{font-family:var(--display);font-size:22px;text-transform:uppercase;letter-spacing:.02em}
+  .p-head .s{font-family:var(--mono);font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--meta);margin-top:4px}
+  .p-body{padding:12px;display:flex;flex-direction:column;gap:9px}
+  .p-kpi{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .p-card{border:1px solid var(--line);border-radius:14px;padding:10px}
+  .p-card span{font-family:var(--mono);font-size:7.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--meta);display:block}
+  .p-card b{font-size:16px;letter-spacing:-.02em}
+  .p-row{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:12px;padding:9px 10px;font-size:10px}
+  .p-row .amt{margin-left:auto;font-weight:700}
+  .p-nav{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:space-around;border-top:1px solid var(--line);padding:10px 6px 16px}
+  .p-nav div{font-family:var(--mono);font-size:7px;letter-spacing:.12em;text-transform:uppercase;color:var(--meta)}
+  .p-nav .on{color:var(--mint)}
 
-  .checks{display:flex;flex-direction:column;gap:12px;margin-top:26px}
-  .check{display:flex;gap:11px;align-items:flex-start;font-size:14px;color:#5b6676}
-  .check b{color:var(--ink);font-weight:620}
-  .mobile-sec .check{color:#c8d3e1}
-  .mobile-sec .check b{color:#fff}
-  .check .tick{flex:none;margin-top:2px}
+  /* cta + footer */
+  .cta{padding:64px 0}
+  .cta-box{border:1px solid var(--mint);border-radius:24px;padding:40px;display:flex;align-items:center;justify-content:space-between;gap:30px;flex-wrap:wrap}
+  .cta-box h2{font-family:var(--display);text-transform:uppercase;font-size:clamp(32px,4vw,54px);line-height:.95;letter-spacing:.005em;margin-bottom:10px}
+  .cta-box p{color:var(--meta);max-width:480px}
+  .creds{margin-top:16px;font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  .creds b{color:var(--mint)}
 
-  /* CTA */
-  .cta{padding:86px 0}
-  .cta-box{background:linear-gradient(135deg,#0f6f61,#0a111d 78%);border-radius:22px;padding:54px;color:#fff;display:flex;align-items:center;gap:36px;justify-content:space-between;flex-wrap:wrap;position:relative;overflow:hidden}
-  .cta-box::after{content:"";position:absolute;right:-90px;bottom:-140px;width:340px;height:340px;border-radius:50%;border:1px solid rgba(255,255,255,.14)}
-  .cta-box h2{margin:0 0 8px;color:#fff}
-  .cta-box p{color:#bcd3ce;max-width:460px}
-  footer{padding:34px 0 46px;border-top:1px solid var(--line);color:var(--muted);font-size:12.5px}
+  footer{padding:30px 0 46px;border-top:1px solid var(--line);color:var(--meta);font-size:12px}
   .foot{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
-  .foot .logo{color:var(--ink)}
+  .foot .mark{width:22px;height:22px;border-radius:50%;background:var(--mint);color:#000;display:grid;place-items:center;font-family:var(--display);font-size:12px}
   .foot .spacer{margin-left:auto}
+  .foot a{font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase}
 
-  /* ---------- motion ---------- */
+  /* motion: transform / opacity only */
   @media (prefers-reduced-motion: no-preference){
-    .float-slow{animation:float 7s ease-in-out infinite alternate}
-    @keyframes float{from{transform:translateY(0)}to{transform:translateY(-12px)}}
-    .float-slower{animation:float 9s ease-in-out infinite alternate-reverse}
+    .float{animation:float 7s ease-in-out infinite alternate}
+    @keyframes float{from{transform:translateY(0)}to{transform:translateY(-10px)}}
+    .float-b{animation:float 9s ease-in-out infinite alternate-reverse}
   }
-
-  .reveal{opacity:0;transform:translateY(16px);transition:opacity .65s cubic-bezier(.2,0,0,1),transform .65s cubic-bezier(.2,0,0,1);transition-delay:var(--d,0ms)}
+  .reveal{opacity:0;transform:translateY(16px);transition:opacity .6s cubic-bezier(.2,0,0,1),transform .6s cubic-bezier(.2,0,0,1);transition-delay:var(--d,0ms)}
   .reveal.in{opacity:1;transform:none}
   .chart .bar{transform:scaleY(0);transition:transform .8s cubic-bezier(.2,0,0,1);transition-delay:var(--d,0ms)}
-  .in .chart .bar,.report.in .bar{transform:scaleY(1)}
+  .in .chart .bar{transform:scaleY(1)}
   .aging .seg{transform:scaleX(0);transition:transform .8s cubic-bezier(.2,0,0,1);transition-delay:var(--d,0ms)}
-  .in .aging .seg,.aging.in .seg{transform:scaleX(1)}
-  .mock-rows .mrow,.ps-body>*{opacity:0;transform:translateY(8px);transition:opacity .5s ease,transform .5s cubic-bezier(.2,0,0,1);transition-delay:var(--d,0ms)}
-  .in .mock-rows .mrow,.in .ps-body>*{opacity:1;transform:none}
+  .in .aging .seg{transform:scaleX(1)}
+  .win-rows .wrow{opacity:0;transform:translateY(8px);transition:opacity .5s ease,transform .5s cubic-bezier(.2,0,0,1);transition-delay:var(--d,0ms)}
+  .in .win-rows .wrow{opacity:1;transform:none}
 
   @media (prefers-reduced-motion: reduce){
     *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
-    .reveal{opacity:1!important;transform:none!important}
-    .chart .bar,.aging .seg,.mock-rows .mrow,.ps-body>*{opacity:1!important;transform:none!important}
+    .reveal,.chart .bar,.aging .seg,.win-rows .wrow{opacity:1!important;transform:none!important}
   }
 
   @media (max-width:1000px){
-    .hero-grid{grid-template-columns:1fr;gap:44px}
-    .mock{transform:none}
-    .float-card{display:none}
-    .report,.mobile-grid{grid-template-columns:1fr;gap:34px}
-    .phone{margin:0 auto}
-    .cards{grid-template-columns:1fr 1fr}
+    .hero-grid,.report,.mobile{grid-template-columns:1fr;gap:36px}
+    .stream::before{left:8px}
+    .entry{grid-template-columns:1fr;gap:10px;padding-left:28px;position:relative}
+    .entry::before{content:"";position:absolute;left:4px;top:30px;width:9px;height:9px;border-radius:50%;background:var(--uv);border:1px solid var(--canvas)}
+    .stamp{text-align:left;padding-top:0;order:-1}
     .stats{grid-template-columns:1fr 1fr}
+    .stat:nth-child(2){border-right:none}
     .nav-links{display:none}
   }
-  @media (max-width:640px){
+  @media (max-width:620px){
     .wrap{width:calc(100% - 32px)}
-    section{padding:64px 0}
-    .cards{grid-template-columns:1fr}
-    .stats{grid-template-columns:1fr 1fr}
-    .cta-box{padding:34px}
-    h1{font-size:38px}
-    .hero{padding:52px 0 74px}
+    .section{padding:44px 0}
+    .wordmark h1{font-size:52px}
+    .hero{padding:28px 0 30px}
+    .cta-box{padding:26px}
   }
 </style>
 </head>
@@ -228,141 +233,163 @@
 
 <header class="nav">
   <div class="wrap nav-in">
-    <a class="logo" href="./"><span class="mark">L</span>Ledgerly</a>
+    <a href="./" class="mono" style="font-size:11px;letter-spacing:.2em;color:#fff">LEDGERLY</a>
     <nav class="nav-links">
-      <a href="#product">Product</a>
-      <a href="#reports">Reporting</a>
-      <a href="#mobile">Mobile</a>
+      <a href="#stream">THE STREAM</a>
+      <a href="#reports">REPORTING</a>
+      <a href="#mobile">MOBILE</a>
     </nav>
     <div class="nav-cta">
-      <a class="btn btn-ghost" href="./app">Sign in</a>
-      <a class="btn btn-primary" href="./app">Open the app</a>
+      <a class="btn btn-slate" href="./app">SIGN IN</a>
+      <a class="btn btn-mint" href="./app">OPEN THE APP</a>
     </div>
   </div>
 </header>
 
+<div class="wrap">
+  <div class="wordmark">
+    <h1>Ledgerly</h1>
+    <span class="tag">AR · AP · REPORTING</span>
+  </div>
+</div>
+
 <section class="hero">
   <div class="wrap hero-grid">
     <div>
-      <span class="eyebrow"><span class="dot"></span> Receivables · Payables · Reporting</span>
-      <h1>Your ledger,<br /><em>balanced</em> by lunch.</h1>
+      <div class="kicker">An editorial ledger for small finance teams</div>
+      <h2 class="display">Invoices, bills,<br />and <em>evidence</em>.</h2>
       <p class="lede">
-        Ledgerly keeps every invoice, bill and payment in one place — and turns them into aging
-        reports, margin and cash flow the moment you need them. No spreadsheets, no month-end panic.
+        Ledgerly keeps every document, payment and allocation in one near-black workspace — then
+        turns them into aging, margin and cash flow the moment somebody asks.
       </p>
       <div class="hero-cta">
-        <a class="btn btn-primary" href="./app">Open the workspace
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-        </a>
-        <a class="btn btn-ghost" href="#reports">See the reports</a>
+        <a class="btn btn-mint" href="./app">Open the workspace</a>
+        <a class="btn btn-outline" href="#stream">Read the stream</a>
       </div>
-      <div class="hero-proof">
-        <span><i class="tick">✓</i> 60fps interface, no spinners</span>
-        <span><i class="tick">✓</i> Works offline as an app</span>
-        <span><i class="tick">✓</i> CSV out in one click</span>
+      <div class="hero-meta">
+        <span><b class="num">10</b> months seeded</span>
+        <span><b class="num">5</b> aging buckets</span>
+        <span><b>60fps</b> interface</span>
       </div>
     </div>
 
-    <div class="mock-stage" id="stage">
-      <div class="mock-tilt" id="tilt">
-        <div class="mock float-slow">
-          <div class="mock-bar"><i></i><i></i><i></i><span class="name">ledgerly.app / receivables</span></div>
-          <div class="mock-body">
-            <div class="mock-kpis">
-              <div class="mk"><span>Receivable</span><b class="num">$134,744</b><span class="down">$43,841 overdue</span></div>
-              <div class="mk"><span>Payable</span><b class="num">$31,744</b><span class="down">$12,100 due soon</span></div>
-              <div class="mk"><span>Margin</span><b class="num">54.7%</b><span class="up">▲ 6.2 pts</span></div>
+    <div class="stage" id="stage">
+      <div class="tilt float" id="tilt">
+        <div class="window">
+          <div class="win-bar"><i></i><i></i><i></i><span>ledgerly / receivables</span></div>
+          <div class="win-body">
+            <div class="win-kpis">
+              <div class="win-kpi"><span>Receivable</span><b class="num">$132,847</b></div>
+              <div class="win-kpi"><span>Payable</span><b class="num">$31,744</b></div>
+              <div class="win-kpi"><span>Margin</span><b class="num">58.7%</b></div>
             </div>
-            <div class="mock-chart">
-              <div class="head"><span>Revenue vs expenses</span><span>last 6 months</span></div>
+            <div class="win-chart">
+              <div class="head"><span>Revenue / expense</span><span>10 months</span></div>
               <div class="mini-bars" data-bars>
-                <div class="mini-bar"><i class="a" style="--h:52%"></i><i class="b" style="--h:34%"></i></div>
-                <div class="mini-bar"><i class="a" style="--h:64%"></i><i class="b" style="--h:36%"></i></div>
-                <div class="mini-bar"><i class="a" style="--h:58%"></i><i class="b" style="--h:35%"></i></div>
-                <div class="mini-bar"><i class="a" style="--h:76%"></i><i class="b" style="--h:37%"></i></div>
-                <div class="mini-bar"><i class="a" style="--h:69%"></i><i class="b" style="--h:36%"></i></div>
-                <div class="mini-bar"><i class="a" style="--h:88%"></i><i class="b" style="--h:38%"></i></div>
+                <div class="col"><i class="a" style="--h:48%"></i><i class="b" style="--h:30%"></i></div>
+                <div class="col"><i class="a" style="--h:62%"></i><i class="b" style="--h:31%"></i></div>
+                <div class="col"><i class="a" style="--h:55%"></i><i class="b" style="--h:32%"></i></div>
+                <div class="col"><i class="a" style="--h:74%"></i><i class="b" style="--h:33%"></i></div>
+                <div class="col"><i class="a" style="--h:66%"></i><i class="b" style="--h:31%"></i></div>
+                <div class="col"><i class="a" style="--h:86%"></i><i class="b" style="--h:34%"></i></div>
               </div>
             </div>
-            <div class="mock-rows">
-              <div class="mrow"><span class="who">Cedar &amp; Co.</span><span class="ref">INV-2026-0079</span><span class="pill late">12d late</span><span class="amt num">$14,559</span></div>
-              <div class="mrow"><span class="who">Harbor Dental</span><span class="ref">INV-2026-0077</span><span class="pill ok">Sent</span><span class="amt num">$7,415</span></div>
-              <div class="mrow"><span class="who">Quartz Media</span><span class="ref">INV-2026-0076</span><span class="pill ok">Part paid</span><span class="amt num">$10,013</span></div>
+            <div class="win-rows">
+              <div class="wrow"><span class="who">Cedar &amp; Co.</span><span class="ref">INV-2026-0061</span><span class="tagpill pink">12d late</span><span class="amt num">$14,559</span></div>
+              <div class="wrow"><span class="who">Harbor Dental</span><span class="ref">INV-2026-0068</span><span class="tagpill mint">Sent</span><span class="amt num">$7,415</span></div>
+              <div class="wrow"><span class="who">Quartz Media</span><span class="ref">INV-2026-0071</span><span class="tagpill uv">Part paid</span><span class="amt num">$10,013</span></div>
             </div>
           </div>
         </div>
       </div>
-      <div class="float-card float-a float-slower"><span class="ic">$</span><div><b>Payment matched</b><br /><span style="color:#667085">PMT-2026-0091 · $7,415</span></div></div>
-      <div class="float-card float-b"><span class="ic">◔</span><div><b>DSO down 9 days</b><br /><span style="color:#667085">vs. last quarter</span></div></div>
-      <div class="float-card float-c float-slower"><span class="ic">↧</span><div><b>Aging exported</b><br /><span style="color:#667085">ar-aging.csv</span></div></div>
     </div>
   </div>
 </section>
 
-<section id="product">
+<section class="section" id="stream">
   <div class="wrap">
-    <div class="reveal"><span class="kicker">One workspace</span>
-      <h2>Both sides of the ledger, finally in sync.</h2>
-      <p class="sub">Invoices and bills share one data model, so a payment moves cash flow, aging and margin at the same time — no re-keying, no reconciliation spreadsheet.</p>
+    <div class="section-head">
+      <div class="mono">The StoryStream</div>
+      <p>Four moves, one ledger. Every entry below is a live screen in the app.</p>
     </div>
 
-    <div class="cards">
-      <div class="card reveal" style="--d:60ms">
-        <div class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h9l4 4v16l-3-2-3 2-3-2-3 2V4a2 2 0 0 1 2-2z"/><path d="M9 9h6M9 13h6M9 17h3"/></svg></div>
-        <h3>Invoices that behave</h3>
-        <p>Draft, send, part-pay, void. Tax per line, discounts before tax, totals recomputed server-side every time.</p>
-      </div>
-      <div class="card reveal" style="--d:120ms">
-        <div class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3h16v18l-4-2-4 2-4-2-4 2z"/><path d="M8 8h8M8 12h8"/></svg></div>
-        <h3>Payables on schedule</h3>
-        <p>Log a vendor bill, approve it, pay it — and watch the AP aging bucket move instead of guessing.</p>
-      </div>
-      <div class="card reveal" style="--d:180ms">
-        <div class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8h20v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z"/><path d="M2 8l3-4h14l3 4M2 12h20"/></svg></div>
-        <h3>Allocations, not guesses</h3>
-        <p>Payments apply oldest-first or by hand, line by line. Delete one and every balance reverses cleanly.</p>
-      </div>
+    <div class="stream">
+      <article class="entry reveal">
+        <div class="stamp">01 / Receivables</div>
+        <div class="tile">
+          <h3>Invoices</h3>
+          <h4>Bill in four seconds, chase in one.</h4>
+          <p>Draft, send, part-pay, void. Tax per line, discounts before tax, totals recomputed server-side on every save.</p>
+        </div>
+      </article>
+
+      <article class="entry reveal" style="--d:60ms">
+        <div class="stamp">02 / Payables</div>
+        <div class="tile uv">
+          <h3>Bills</h3>
+          <h4>Know what you owe before it lands.</h4>
+          <p>Vendor bills run through approval into scheduled payments, and the AP aging buckets move the moment you pay.</p>
+        </div>
+      </article>
+
+      <article class="entry reveal" style="--d:60ms">
+        <div class="stamp">03 / Payments</div>
+        <div class="tile mint">
+          <h3>Allocations</h3>
+          <h4>Oldest first, or exactly by hand.</h4>
+          <p>Payments apply to open documents with one click, or line by line. Delete one and every balance reverses cleanly.</p>
+        </div>
+      </article>
+
+      <article class="entry reveal" style="--d:60ms">
+        <div class="stamp">04 / Reporting</div>
+        <div class="tile yellow">
+          <h3>Aging · P&amp;L · Cash</h3>
+          <h4>The number is always the current one.</h4>
+          <p>Five aging buckets as of any date, accrual profit &amp; loss by month and category, cash movement with a running balance.</p>
+        </div>
+      </article>
     </div>
 
-    <div class="stats">
-      <div class="stat reveal" style="--d:0ms"><b class="num">5</b><span>aging buckets, current to 90+</span></div>
-      <div class="stat reveal" style="--d:60ms"><b class="num">1</b><span>click to export any report</span></div>
-      <div class="stat reveal" style="--d:120ms"><b class="num">0</b><span>spreadsheets required</span></div>
-      <div class="stat reveal" style="--d:180ms"><b class="num">60</b><span>fps on every transition</span></div>
+    <div class="stats reveal" style="margin-top:34px">
+      <div class="stat"><b class="num">$132,847</b><span>Receivable</span></div>
+      <div class="stat"><b class="num">58.7%</b><span>Gross margin</span></div>
+      <div class="stat"><b class="num">5</b><span>Aging buckets</span></div>
+      <div class="stat"><b class="num">1</b><span>Click to CSV</span></div>
     </div>
   </div>
 </section>
 
-<section id="reports" style="background:#fff;border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+<section class="section" id="reports">
   <div class="wrap report">
     <div class="reveal">
-      <span class="kicker">Reporting</span>
-      <h2>Know the number before anyone asks.</h2>
-      <p class="sub">Accrual P&amp;L by month and category. Cash flow with a running balance. AR and AP aging by contact, with the oldest days past due sitting right next to the balance.</p>
+      <div class="mono" style="color:var(--mint);font-size:11px">Reporting</div>
+      <h2 class="display" style="font-size:clamp(36px,4.6vw,62px);margin-top:14px">The books,<br />already closed.</h2>
+      <p class="lede" style="margin-top:16px">Accrual P&amp;L by month and category. Cash flow with a running balance. AR and AP aging by contact, with the oldest days past due sitting next to the balance.</p>
       <div class="checks">
-        <div class="check"><i class="tick">✓</i><span><b>Aging that actually ages</b> — current, 1–30, 31–60, 61–90 and 90+, computed as of any date.</span></div>
-        <div class="check"><i class="tick">✓</i><span><b>DSO and DPO</b> from trailing 90-day activity, not a hand-typed formula.</span></div>
-        <div class="check"><i class="tick">✓</i><span><b>CSV that opens clean</b> — decimal amounts, ISO dates, one row per contact.</span></div>
+        <div class="check"><span class="dot">✓</span><span><b>Aging that ages</b> — current, 1–30, 31–60, 61–90, 90+ as of any date.</span></div>
+        <div class="check"><span class="dot">✓</span><span><b>DSO and DPO</b> from trailing 90-day activity, not a hand-typed formula.</span></div>
+        <div class="check"><span class="dot">✓</span><span><b>CSV that opens clean</b> — decimals, ISO dates, one row per contact.</span></div>
       </div>
     </div>
 
     <div class="panel reveal" id="report-panel" style="--d:80ms">
-      <div class="panel-head"><b>Profit &amp; loss</b><span>Jan – Oct 2026</span></div>
+      <div class="ph"><b>Profit &amp; loss</b><span>Jan – Oct 2026</span></div>
       <div class="chart" data-chart>
-        <div class="col"><i class="bar a" style="--h:44%;--d:0ms"></i><i class="bar b" style="--h:33%;--d:40ms"></i></div>
-        <div class="col"><i class="bar a" style="--h:58%;--d:30ms"></i><i class="bar b" style="--h:35%;--d:70ms"></i></div>
-        <div class="col"><i class="bar a" style="--h:51%;--d:60ms"></i><i class="bar b" style="--h:34%;--d:100ms"></i></div>
-        <div class="col"><i class="bar a" style="--h:66%;--d:90ms"></i><i class="bar b" style="--h:36%;--d:130ms"></i></div>
-        <div class="col"><i class="bar a" style="--h:72%;--d:120ms"></i><i class="bar b" style="--h:35%;--d:160ms"></i></div>
-        <div class="col"><i class="bar a" style="--h:61%;--d:150ms"></i><i class="bar b" style="--h:36%;--d:190ms"></i></div>
-        <div class="col"><i class="bar a" style="--h:84%;--d:180ms"></i><i class="bar b" style="--h:37%;--d:220ms"></i></div>
-        <div class="col"><i class="bar a" style="--h:77%;--d:210ms"></i><i class="bar b" style="--h:38%;--d:250ms"></i></div>
+        <div class="col"><i class="bar a" style="--h:46%;--d:0ms"></i><i class="bar b" style="--h:31%;--d:40ms"></i></div>
+        <div class="col"><i class="bar a" style="--h:60%;--d:30ms"></i><i class="bar b" style="--h:33%;--d:70ms"></i></div>
+        <div class="col"><i class="bar a" style="--h:53%;--d:60ms"></i><i class="bar b" style="--h:32%;--d:100ms"></i></div>
+        <div class="col"><i class="bar a" style="--h:69%;--d:90ms"></i><i class="bar b" style="--h:34%;--d:130ms"></i></div>
+        <div class="col"><i class="bar a" style="--h:64%;--d:120ms"></i><i class="bar b" style="--h:33%;--d:160ms"></i></div>
+        <div class="col"><i class="bar a" style="--h:82%;--d:150ms"></i><i class="bar b" style="--h:35%;--d:190ms"></i></div>
+        <div class="col"><i class="bar a" style="--h:76%;--d:180ms"></i><i class="bar b" style="--h:34%;--d:220ms"></i></div>
+        <div class="col"><i class="bar a" style="--h:88%;--d:210ms"></i><i class="bar b" style="--h:36%;--d:250ms"></i></div>
       </div>
       <div class="chart-x"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span><span>Jul</span><span>Aug</span></div>
 
       <div class="aging" data-aging>
-        <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin:6px 0 7px">
-          <span>AR aging</span><span class="num"><b style="color:var(--ink)">$134,744</b> open</span>
+        <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--meta);margin:14px 0 8px">
+          <span>AR aging</span><span><b style="color:#fff" class="num">$132,847</b> open</span>
         </div>
         <div class="aging-bar">
           <div class="seg current" style="width:67.5%;--d:120ms"></div>
@@ -371,60 +398,46 @@
           <div class="seg d61" style="width:6.7%;--d:300ms"></div>
           <div class="seg d90" style="width:8.5%;--d:360ms"></div>
         </div>
-        <div class="aging-legend">
-          <span><i style="background:#1fb39c"></i>Current 67.5%</span>
-          <span><i style="background:#f0b429"></i>1–30 10.2%</span>
-          <span><i style="background:#e8833a"></i>31–60 7.1%</span>
-          <span><i style="background:#d2552f"></i>61–90 6.7%</span>
-          <span><i style="background:#b42318"></i>90+ 8.5%</span>
+        <div class="legend">
+          <span><i style="background:var(--mint)"></i>Current 67.5%</span>
+          <span><i style="background:var(--yellow)"></i>1–30 10.2%</span>
+          <span><i style="background:var(--orange)"></i>31–60 7.1%</span>
+          <span><i style="background:var(--pink)"></i>61–90 6.7%</span>
+          <span><i style="background:var(--uv)"></i>90+ 8.5%</span>
         </div>
       </div>
     </div>
   </div>
 </section>
 
-<section id="mobile" class="mobile-sec">
-  <div class="wrap mobile-grid">
+<section class="section" id="mobile">
+  <div class="wrap mobile">
     <div class="reveal">
-      <span class="kicker" style="color:#5ad7c0">Web and mobile</span>
-      <h2>Same ledger in your pocket.</h2>
-      <p class="sub">Install it from the browser — no app store, no build step for the team. The shell is cached, so the last screens open instantly even with one bar of signal.</p>
+      <div class="mono" style="color:var(--mint);font-size:11px">Web and mobile</div>
+      <h2 class="display" style="font-size:clamp(36px,4.6vw,62px);margin-top:14px">Same ledger,<br />pocket edition.</h2>
+      <p class="lede" style="margin-top:16px">Install it from the browser — the shell is cached, so the last screens open instantly even on one bar of signal.</p>
       <div class="checks">
-        <div class="check"><i class="tick">✓</i><span>Installable PWA with offline shell and home-screen icon</span></div>
-        <div class="check"><i class="tick">✓</i><span>Native shells for iOS and Android via Capacitor</span></div>
-        <div class="check"><i class="tick">✓</i><span>Tables become cards; editors become bottom sheets</span></div>
+        <div class="check"><span class="dot">✓</span><span>Installable PWA with offline shell and home-screen icon</span></div>
+        <div class="check"><span class="dot">✓</span><span>Native shells for iOS and Android via Capacitor</span></div>
+        <div class="check"><span class="dot">✓</span><span>Tables become cards; editors become bottom sheets</span></div>
       </div>
-      <div class="hero-cta" style="margin-top:28px">
-        <a class="btn btn-primary" href="./app">Try the mobile layout</a>
-      </div>
+      <div class="hero-cta"><a class="btn btn-mint" href="./app">Try the mobile layout</a></div>
     </div>
 
-    <div class="phone float-slow reveal" style="--d:80ms">
-      <div class="phone-notch"></div>
-      <div class="phone-screen">
-        <div class="ps-head">
-          <div class="t">Receivables</div>
-          <div class="s">9 open · $134,744</div>
-        </div>
-        <div class="ps-body">
-          <div class="ps-kpi">
-            <div class="ps-card"><span>Overdue</span><b class="num" style="color:#b42318">$43,841</b></div>
-            <div class="ps-card"><span>DSO</span><b class="num">77 days</b></div>
+    <div class="phone float-b reveal" style="--d:80ms">
+      <div class="phone-in">
+        <div class="p-head"><div class="t">Receivables</div><div class="s">17 open · $132,847</div></div>
+        <div class="p-body">
+          <div class="p-kpi">
+            <div class="p-card"><span>Overdue</span><b class="num" style="color:var(--pink)">$85,168</b></div>
+            <div class="p-card"><span>DSO</span><b class="num">77 days</b></div>
           </div>
-          <div class="ps-row"><span class="pill late">Late</span><span>Cedar &amp; Co.</span><span class="amt num">$14,559</span></div>
-          <div class="ps-row"><span class="pill ok">Open</span><span>Harbor Dental</span><span class="amt num">$7,415</span></div>
-          <div class="ps-row"><span class="pill ok">Part</span><span>Quartz Media</span><span class="amt num">$10,013</span></div>
-          <div class="ps-row"><span class="pill ok">Open</span><span>Atlas Mfg.</span><span class="amt num">$19,647</span></div>
-          <div class="ps-card" style="margin-top:2px">
-            <span>Cash in · 30 days</span><b class="num" style="color:#0f7b5f">+$61,000</b>
-          </div>
+          <div class="p-row"><span class="tagpill pink">Late</span><span>Cedar &amp; Co.</span><span class="amt num">$14,559</span></div>
+          <div class="p-row"><span class="tagpill mint">Open</span><span>Harbor Dental</span><span class="amt num">$7,415</span></div>
+          <div class="p-row"><span class="tagpill uv">Part</span><span>Quartz Media</span><span class="amt num">$10,013</span></div>
+          <div class="p-card" style="margin-top:2px"><span>Cash in · 30 days</span><b class="num" style="color:var(--mint)">+$61,000</b></div>
         </div>
-        <div class="ps-nav">
-          <div class="on"><span class="ps-dot"></span>Home</div>
-          <div><span class="ps-dot"></span>Sales</div>
-          <div><span class="ps-dot"></span>Bills</div>
-          <div><span class="ps-dot"></span>Reports</div>
-        </div>
+        <div class="p-nav"><div class="on">Home</div><div>Sales</div><div>Bills</div><div>Reports</div></div>
       </div>
     </div>
   </div>
@@ -434,24 +447,23 @@
   <div class="wrap">
     <div class="cta-box reveal">
       <div>
-        <h2>Close the books before you close the laptop.</h2>
-        <p>Open the demo workspace — ten months of invoices, bills and payments, already reconciled.</p>
-        <p style="margin-top:12px;font-size:12.5px;color:#9fc3bb">Test account <b class="num" style="color:#fff">test@ledgerly.app</b> · <b class="num" style="color:#fff">test1234</b></p>
+        <h2>Close the books<br />before you close the laptop.</h2>
+        <p>Ten months of invoices, bills and payments are already reconciled in the demo workspace.</p>
+        <div class="creds">Test account <b>test@ledgerly.app</b> · <b>test1234</b></div>
       </div>
-      <a class="btn btn-primary" href="./app" style="height:44px;padding:0 22px">Open Ledgerly
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-      </a>
+      <a class="btn btn-mint" href="./app">Open Ledgerly</a>
     </div>
   </div>
 </section>
 
 <footer>
   <div class="wrap foot">
-    <span class="logo" style="font-size:14px"><span class="mark" style="width:24px;height:24px;font-size:12px">L</span>Ledgerly</span>
+    <span class="mark">L</span>
     <span>Receivables, payables and reporting for small finance teams.</span>
     <span class="spacer"></span>
     <a href="./app">Workspace</a>
-    <a href="#product">Product</a>
+    <a href="#stream">Stream</a>
+    <a href="./">Top</a>
   </div>
 </footer>
 
@@ -462,7 +474,7 @@
   var supportsMatchMedia = typeof window.matchMedia === 'function';
   var motionOff = params.get('motion') === 'off' || (supportsMatchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
-  // Height of the mock bars is data, not animation: set once, then animate scaleY.
+  // Bar heights are data, not animation: set once, then animate scaleY.
   document.querySelectorAll('[data-bars] i').forEach(function (el) {
     el.style.height = el.style.getPropertyValue('--h') || '40%';
   });
@@ -471,7 +483,7 @@
   });
 
   function revealAll() {
-    document.querySelectorAll('.reveal, #report-panel, .aging, .mock, .ps-body').forEach(function (el) {
+    document.querySelectorAll('.reveal, #report-panel, .aging, .window, .p-body').forEach(function (el) {
       el.classList.add('in');
     });
   }
@@ -487,16 +499,15 @@
           io.unobserve(entry.target);
         }
       });
-    }, { threshold: 0.18, rootMargin: '0px 0px -8% 0px' });
-    document.querySelectorAll('.reveal, #report-panel, .aging, .mock, .ps-body').forEach(function (el) {
+    }, { threshold: 0.16, rootMargin: '0px 0px -8% 0px' });
+    document.querySelectorAll('.reveal, #report-panel, .aging, .window, .p-body').forEach(function (el) {
       io.observe(el);
     });
   } else {
     revealAll();
   }
 
-  // Cursor parallax on the hero mock: a single transform write per frame, no layout reads
-  // beyond the cached rect, and it never runs when motion is reduced.
+  // Cursor parallax on the window mock: one transform write per frame.
   var stage = document.getElementById('stage');
   var tilt = document.getElementById('tilt');
   if (stage && tilt && !motionOff && supportsMatchMedia && window.matchMedia('(pointer:fine)').matches) {
@@ -504,7 +515,7 @@
     var paint = function () {
       current.x += (target.x - current.x) * 0.08;
       current.y += (target.y - current.y) * 0.08;
-      tilt.style.transform = 'rotateY(' + (-9 + current.x * 4).toFixed(2) + 'deg) rotateX(' + (4 + current.y * 3).toFixed(2) + 'deg) translate3d(' + (current.x * 6).toFixed(2) + 'px,' + (current.y * 6).toFixed(2) + 'px,0)';
+      tilt.style.transform = 'translate3d(' + (current.x * 6).toFixed(2) + 'px,' + (current.y * 6).toFixed(2) + 'px,0)';
       if (Math.abs(target.x - current.x) > 0.001 || Math.abs(target.y - current.y) > 0.001) {
         raf = requestAnimationFrame(paint);
       } else {
@@ -523,15 +534,12 @@
     }, { passive: true });
   }
 
-  // Freeze harness: ?t=1.2 lands every CSS animation/transition on a deterministic frame.
+  // Freeze harness: ?t=1.2 pins every CSS animation/transition to a deterministic frame.
   function freeze(seconds) {
     document.querySelectorAll('*').forEach(function (el) {
       if (!el.getAnimations) return;
       el.getAnimations().forEach(function (anim) {
-        try {
-          anim.pause();
-          anim.currentTime = seconds * 1000;
-        } catch (e) { /* infinite animations may reject seeking */ }
+        try { anim.pause(); anim.currentTime = seconds * 1000; } catch (e) { /* infinite loops may reject */ }
       });
     });
   }
@@ -550,5 +558,3 @@
 </script>
 </body>
 </html>
-
-

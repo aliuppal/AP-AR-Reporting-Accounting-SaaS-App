@@ -281,8 +281,8 @@ export function BarPairChart({
         ))}
       </div>
       <div className="chart-legend" style={{ marginTop: 8 }}>
-        <span><i className="legend-dot" style={{ background: '#17a08c' }} />Revenue</span>
-        <span><i className="legend-dot" style={{ background: '#c7ccd6' }} />Expenses</span>
+        <span><i className="legend-dot" style={{ background: '#3cffd0' }} />Revenue</span>
+        <span><i className="legend-dot" style={{ background: '#5200ff' }} />Expenses</span>
         <span style={{ marginLeft: 'auto' }} className="num">peak {fmt(max)}</span>
       </div>
     </div>
@@ -329,11 +329,11 @@ export function AgingBar({ totals }: { totals: { current: number; d1_30: number;
 }
 
 const AGING_COLORS = {
-  current: '#17a08c',
-  d1_30: '#f0b429',
-  d31_60: '#e8833a',
-  d61_90: '#d2552f',
-  d90plus: '#b42318',
+  current: '#3cffd0',
+  d1_30: '#ffd400',
+  d31_60: '#ff8a3d',
+  d61_90: '#ff5ca8',
+  d90plus: '#5200ff',
 };
 
 function moneyShort(cents: number) {

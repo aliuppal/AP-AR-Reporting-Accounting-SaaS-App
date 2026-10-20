@@ -50,15 +50,15 @@ export function Login() {
         </div>
 
         <div className="stack gap-16" style={{ marginTop: 30 }}>
-          <span className="tiny" style={{ color: '#6f7c90', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Everything in one ledger</span>
+          <span className="tiny" style={{ color: '#949494', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Everything in one ledger</span>
           <div className="stack gap-12">
             {[
               ['Invoice customers and track every dollar owed', 'invoice'],
               ['Approve vendor bills and schedule payables', 'bill'],
               ['Age your AR/AP and report P&L in real time', 'reports'],
             ].map(([text, icon]) => (
-              <div key={text} className="row gap-10" style={{ gap: 10, color: '#c2ccda', fontSize: 13.5 }}>
-                <span style={{ width: 26, height: 26, borderRadius: 8, background: 'rgba(33,179,156,0.14)', display: 'grid', placeItems: 'center', color: '#49c6b0', flex: 'none' }}>
+              <div key={text} className="row gap-10" style={{ gap: 10, color: '#e9e9e9', fontSize: 13.5 }}>
+                <span style={{ width: 26, height: 26, borderRadius: 8, background: 'rgba(60,255,208,0.14)', display: 'grid', placeItems: 'center', color: '#3cffd0', flex: 'none' }}>
                   <Icon name={icon} size={14} />
                 </span>
                 {text}
@@ -69,7 +69,7 @@ export function Login() {
 
         <div className="auth-quote">
           “Close the books without closing your laptop.”
-          <div className="small" style={{ color: '#7f8b9f', marginTop: 10 }}>Built for small finance teams — web and mobile.</div>
+          <div className="small" style={{ color: '#949494', marginTop: 10 }}>Built for small finance teams — web and mobile.</div>
         </div>
       </aside>
 

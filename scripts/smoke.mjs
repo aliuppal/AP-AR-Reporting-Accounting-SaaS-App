@@ -123,7 +123,8 @@ const landing = new JSDOM(landingHtml, {
   virtualConsole,
 });
 const landingText = landing.window.document.body.textContent.replace(/\s+/g, ' ');
-check('landing page serves', /balanced/.test(landingText) && /Profit & loss/.test(landingText));
+check('landing page serves', /editorial ledger/i.test(landingText) && /Profit & loss/.test(landingText));
+check('landing uses the Verge masthead', /LEDGERLY/.test(landingText) && !!landing.window.document.querySelector('.wordmark h1'));
 check('landing reveals without IntersectionObserver', await waitFor(() => {
   const reveals = [...landing.window.document.querySelectorAll('.reveal')];
   return reveals.length > 8 && reveals.every((el) => el.classList.contains('in'));

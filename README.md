@@ -166,6 +166,33 @@ While developing against a local API from a device, uncomment `server.url` in `c
 
 ---
 
+## Design
+
+The interface follows an editorial system inspired by **The Verge**: a near-black canvas with hazard
+accents, heavy display type, pill geometry, hairline borders and no elevation.
+
+- **Canvas** `#131313` everywhere — there is no light mode. Secondary surface `#2d2d2d`, body text
+  `#ffffff`, metadata `#949494`.
+- **Hazards** — Jelly Mint `#3cffd0` for primary actions, paid states and active nav; Ultraviolet
+  `#5200ff` for payables/open states and error accents; yellow/pink/orange for aging buckets and tags.
+  They are accents, never background washes, and there are **no gradients**.
+- **Type** — Anton (display, uppercase, 0.95 line-height as the substitute's metric correction),
+  Space Grotesk (UI, 300/400/500/700), JetBrains Mono for every uppercase label, timestamp, table
+  header and button. All three are self-hosted under `web/public/fonts/` (latin WOFF2), so the app
+  installs and runs offline without a font CDN.
+- **Geometry** — 20px cards, 24px feature/modal, 24–40px pills, 2px inputs, 50% circles. No square
+  corners, no box-shadows: hierarchy is carried by 1px borders and saturated fills.
+- **Interaction** — every link hovers to `#3860be` with no underline; tiles respond with a text-colour
+  change and a mint border, never a lift.
+- **Landing page** — a 107px masthead wordmark, a StoryStream timeline with mono timestamps on a
+  `#3d00bf` rail, and colour-block tiles (mint, ultraviolet, yellow) carrying the product story.
+
+The system is split across three files so the editorial layer can be reviewed on its own:
+`web/styles.css` (structure and components), `web/theme-verge.css` (tokens, colour, type, geometry
+overrides) and `web/motion.css` (animation only).
+
+---
+
 ## Motion & animation
 
 Motion is layered on top of the UI as a separate stylesheet (`web/motion.css`) so the performance
@@ -174,8 +201,8 @@ contract is visible in one place, built to the *60fps-animation* rules:
 - **Only `transform` and `opacity` animate.** Route changes, staggered rows/KPIs, charts, aging
   segments, the mobile sheet and toasts are all compositor-only. Bars set their height once as data,
   then grow with `scaleY`; aging segments grow with `scaleX` — no `height`/`width` is interpolated.
-- **Shadows fade, never animate.** Hover lift uses `::after` holding a pre-rasterised shadow and
-  animates only its `opacity`; `box-shadow` was removed from the button and input transitions.
+- **Shadows are gone, so nothing paints one.** The editorial theme removed elevation entirely; the
+  previous shadow-fade hover was retired and `.lift` is now a no-op, so hover states only change colour.
 - **`will-change` is scoped** to the modal (short-lived, single instance) rather than applied broadly.
 - **Reduced motion is honoured twice**: a `prefers-reduced-motion: reduce` block collapses every
   duration, and the landing page also skips its observer/parallax when motion is reduced.

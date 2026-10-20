@@ -18,6 +18,7 @@ function copyStatic() {
   cpSync(join(root, 'web', 'index.html'), join(outDir, 'index.html'));
   cpSync(join(root, 'web', 'styles.css'), join(outDir, 'styles.css'));
   cpSync(join(root, 'web', 'motion.css'), join(outDir, 'motion.css'));
+  cpSync(join(root, 'web', 'theme-verge.css'), join(outDir, 'theme-verge.css'));
   cpSync(join(root, 'web', 'public'), outDir, { recursive: true });
   // index.html lives at the root of dist and references /app.js
   const html = readFileSync(join(outDir, 'index.html'), 'utf8');
