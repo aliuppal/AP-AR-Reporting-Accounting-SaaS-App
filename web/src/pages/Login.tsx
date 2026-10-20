@@ -3,6 +3,12 @@ import { useAuth } from '../auth';
 import { ApiError } from '../api';
 import { Button, Field, Icon, Input } from '../ui';
 
+/** Build stamp injected into the HTML by scripts/build.mjs — proves which bundle is running. */
+function buildStamp() {
+  const meta = document.querySelector('meta[name="ledgerly-build"]');
+  return meta?.getAttribute('content') ?? 'dev';
+}
+
 export function Login() {
   const { login } = useAuth();
   const [email, setEmail] = useState('test@ledgerly.app');
@@ -131,6 +137,10 @@ export function Login() {
           <a href="/landing.html" className="small muted" style={{ textAlign: 'center' }}>
             Not ready to sign in? Take the animated tour →
           </a>
+
+          <div className="tiny muted" style={{ textAlign: 'center' }} data-build={buildStamp()}>
+            build {buildStamp()}
+          </div>
         </div>
       </div>
     </div>

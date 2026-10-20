@@ -74,7 +74,9 @@ function stampHtml(version) {
     html = html
       .replace(/(href="\/(?:styles|motion|theme-verge)\.css)"/g, `$1?v=${version}"`)
       .replace(/(href="\/fonts\/fonts\.css)"/g, `$1?v=${version}"`)
-      .replace(/(src="\/app\.js)"/g, `$1?v=${version}"`);
+      .replace(/(src="\/app\.js)"/g, `$1?v=${version}"`)
+      // Visible build stamp: tells you immediately whether a tab is running stale code.
+      .replace('</head>', `  <meta name="ledgerly-build" content="${version}" />\n</head>`);
     writeFileSync(path, html);
   }
   return version;
