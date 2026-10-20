@@ -156,6 +156,13 @@ export function Login() {
               {apiState}
             </span>
           </div>
+
+          {buildStamp() === 'dev' ? (
+            <div className="banner banner-warn" style={{ fontSize: 12 }}>
+              This page is an outdated cached copy (no build stamp). Reload with Ctrl/Cmd+Shift+R,
+              or clear this site's service worker under DevTools → Application.
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
